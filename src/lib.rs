@@ -283,7 +283,14 @@ mod tests {
         use std::cell::{RefCell, RefMut};
         use std::rc::Rc;
 
-        let test_schema = r#"
+        // The codegen associated with the schema migration
+        // is meant to mirror this default module, assuming
+        // that a parser has been fed a file (or user input)
+        // containing the given sdl.
+        //
+        // Note: If this strongly resembles EdgeDB syntax, that's
+        // because I'm writing FunkDB to be compatible with it.
+        /*
             module default {
                 type F____Given {
                     required expires: int32;
@@ -293,8 +300,14 @@ mod tests {
                     required online: bool;
                     multi f____: F____Given;
                 }
-            }"#;
+            }
+        */
+
+        // Preparing the namespace, type arena, builtin types, and 
+        // creating a way for the interned data to be shared between
+        // a module and the namespace.
         let arena = Rc::new(RefCell::new(Arena::new()));
+        
         let mut ns = Namespace::builder()
             .arena(Rc::clone(&arena))
             .modules(vec![])
@@ -304,36 +317,44 @@ mod tests {
             .name("std")
             .arena(Rc::clone(&arena))
             .build();
+        
         let mut mod_funk_std = funk_std.clone();
+        
         &mut ns.register_module(&mut mod_funk_std)?;
         
-        let mut default = Module::builder()
-            .name("default")
-            .arena(Rc::clone(&arena))
-            .build();
-        let mut mod_default = default.clone();
-        &mut ns.register_module(&mut mod_default)?;
-
-        // First we need to commit all of the builtins
         let builtins: Vec<FunkData> = funkstd::iter()
             .map(|ty| FunkData::primitive(ty))
             .collect();
         let builtins = vec![(funk_std, builtins)];
         &mut ns.try_commit(&builtins)?;
 
-        let F____Given = Rc::new(FunkTy::r#type("F____Given")
-            .add_required_property(("expires", funkstd::int32))
-            .add_property(("significance", funkstd::r#str)));
+        // This is where we introduce a user-defined schema
+        let mut default = Module::builder()
+            .name("default")
+            .arena(Rc::clone(&arena))
+            .build();
+        let mut mod_default = default.clone();
+
+        &mut ns.register_module(&mut mod_default)?;
+
+        let F____Given = {
+            let ty = FunkTy::r#type("F____Given")
+                .add_required_property(("expires", funkstd::int32))
+                .add_property(("significance", funkstd::r#str));
+            Rc::new(ty)
+        };
         
         let ReasonForLiving = FunkTy::r#type("ReasonForLiving")
             .add_required_property(("online", funkstd::r#bool))
             .add_multi_link(("f____", Rc::clone(&F____Given)));
 
+        let F____Given = Rc::into_inner(F____Given).unwrap();
+
         let commits = vec![
             (
                 default, 
                 vec![
-                    FunkData::custom(Rc::into_inner(F____Given).unwrap()), 
+                    FunkData::custom(F____Given), 
                     FunkData::custom(ReasonForLiving)
                 ]
             )
