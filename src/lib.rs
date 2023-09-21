@@ -10,8 +10,8 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::thread;
-use typed_builder::TypedBuilder;
 use strum::{EnumIter, IntoEnumIterator};
+use typed_builder::TypedBuilder;
 
 #[derive(Debug, Clone)]
 struct Module<'a> {
@@ -33,8 +33,8 @@ impl<'a> Module<'a> {
     }
     #[allow(unreachable_code)]
     fn add_type(&mut self, _type: FunkTy<'a>) -> anyhow::Result<()> {
-        // Inspect the arena for the presented `r#type: FunkTy<'a>` 
-        // metadata. If an associated `ArenaEntry` is found, we 
+        // Inspect the arena for the presented `r#type: FunkTy<'a>`
+        // metadata. If an associated `ArenaEntry` is found, we
         // yeet an error back to the caller.
         bail!("Not implemented");
         todo!("Define an `ArenaEntry` that can be stored and later retrieved");
@@ -96,7 +96,8 @@ impl<'a> Namespace<'a> {
     fn register_module(&mut self, new_module: &'a mut Module<'a>) -> anyhow::Result<()> {
         if let Some(_found) = self
             .modules
-            .iter().find(|module| module.get_name() == new_module.get_name())
+            .iter()
+            .find(|module| module.get_name() == new_module.get_name())
         {
             bail!("Module registration occurred twice!");
         } else {
@@ -104,17 +105,24 @@ impl<'a> Namespace<'a> {
             Ok(())
         }
     }
-    fn try_commit(&mut self, _commits: &Vec<(Module<'a>, Vec<FunkData<'a>>)>) -> anyhow::Result<()> {
+    fn try_commit(
+        &mut self,
+        _commits: &Vec<(Module<'a>, Vec<FunkData<'a>>)>,
+    ) -> anyhow::Result<()> {
         bail!("Not implemented");
     }
 }
 
 #[derive(Debug, Clone)]
 struct Arena<'arena> {
-    metadata: BTreeMap<(
-        /* module_name = */ Cow<'arena, str>,
-        /* identity = */ Cow<'arena, str>,
-        /* assignment = */ Cow<'arena, str>), FunkData<'arena>>,
+    metadata: BTreeMap<
+        (
+            /* module_name = */ Cow<'arena, str>,
+            /* identity = */ Cow<'arena, str>,
+            /* assignment = */ Cow<'arena, str>,
+        ),
+        FunkData<'arena>,
+    >,
 }
 
 impl<'arena> Arena<'arena> {
@@ -126,7 +134,7 @@ impl<'arena> Arena<'arena> {
     pub fn is_name_available(&self, _module_name: &str, _identity: &str, _field: &str) -> bool {
         // Property and link names shouldn't be disambiguated
         // on a given type.
-        true  
+        true
     }
 }
 
@@ -152,16 +160,25 @@ pub enum funkstd {
     uint128,
 }
 
-pub type FunkPropMap<'arena> = BTreeMap::<
-    Cow<'arena, str>, 
-    (/* kind */ funkstd, /* required: */ bool, /* is_multi: */ bool)>;
+pub type FunkPropMap<'arena> = BTreeMap<
+    Cow<'arena, str>,
+    (
+        /* kind */ funkstd,
+        /* required: */ bool,
+        /* is_multi: */ bool,
+    ),
+>;
 
-pub type FunkLinkMap<'arena> = BTreeMap::<
-    Cow<'arena, str>, 
-    (/* kind */ Rc<FunkTy<'arena>>, /* required: */ bool, /* is_multi: */ bool)>;
+pub type FunkLinkMap<'arena> = BTreeMap<
+    Cow<'arena, str>,
+    (
+        /* kind */ Rc<FunkTy<'arena>>,
+        /* required: */ bool,
+        /* is_multi: */ bool,
+    ),
+>;
 
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct FunkTy<'a> {
     pub type_name: Option<Cow<'a, str>>,
     pub properties: FunkPropMap<'a>,
@@ -180,8 +197,9 @@ impl<'a> FunkTy<'a> {
         let required = false;
         let is_multi = false;
         let typekey: Cow<'a, str> = typekey.into();
-        self.properties.insert(typekey, (property, required, is_multi));
-        self 
+        self.properties
+            .insert(typekey, (property, required, is_multi));
+        self
     }
 
     fn add_multi_property<T: Into<Cow<'a, str>>>(mut self, prop: (T, funkstd)) -> Self {
@@ -189,8 +207,9 @@ impl<'a> FunkTy<'a> {
         let required = false;
         let is_multi = true;
         let typekey: Cow<'a, str> = typekey.into();
-        self.properties.insert(typekey, (multiproperty, required, is_multi));
-        self 
+        self.properties
+            .insert(typekey, (multiproperty, required, is_multi));
+        self
     }
 
     fn add_required_property<T: Into<Cow<'a, str>>>(mut self, prop: (T, funkstd)) -> Self {
@@ -198,18 +217,19 @@ impl<'a> FunkTy<'a> {
         let required = true;
         let is_multi = false;
         let typekey: Cow<'a, str> = typekey.into();
-        self.properties.insert(typekey, (property, required, is_multi));
-        self 
+        self.properties
+            .insert(typekey, (property, required, is_multi));
+        self
     }
-
 
     fn add_required_multi_property<T: Into<Cow<'a, str>>>(mut self, prop: (T, funkstd)) -> Self {
         let (typekey, multiproperty) = prop;
         let required = true;
         let is_multi = true;
         let typekey: Cow<'a, str> = typekey.into();
-        self.properties.insert(typekey, (multiproperty, required, is_multi));
-        self 
+        self.properties
+            .insert(typekey, (multiproperty, required, is_multi));
+        self
     }
 
     fn add_multi_link<'arena, T: Into<Cow<'a, str>>>(mut self, link: (T, Rc<FunkTy<'a>>)) -> Self {
@@ -230,7 +250,10 @@ impl<'a> FunkTy<'a> {
         self
     }
 
-    fn add_required_multi_link<'arena, T: Into<Cow<'a, str>>>(mut self, link: (T, Rc<FunkTy<'a>>)) -> Self {
+    fn add_required_multi_link<'arena, T: Into<Cow<'a, str>>>(
+        mut self,
+        link: (T, Rc<FunkTy<'a>>),
+    ) -> Self {
         let (linkkey, multilink) = link;
         let required = true;
         let is_multi = true;
@@ -239,9 +262,10 @@ impl<'a> FunkTy<'a> {
         self
     }
 
-       
-       
-    fn add_required_link<'arena, T: Into<Cow<'a, str>>>(mut self, link: (T, Rc<FunkTy<'a>>)) -> Self {
+    fn add_required_link<'arena, T: Into<Cow<'a, str>>>(
+        mut self,
+        link: (T, Rc<FunkTy<'a>>),
+    ) -> Self {
         let (linkkey, link) = link;
         let required = true;
         let is_multi = false;
@@ -249,12 +273,7 @@ impl<'a> FunkTy<'a> {
         self.links.insert(linkkey, (link, required, is_multi));
         self
     }
-
-       
 }
-
-
-
 
 #[cfg(test)]
 mod tests {
@@ -294,11 +313,11 @@ mod tests {
             }
         */
 
-        // Preparing the namespace, type arena, builtin types, and 
+        // Preparing the namespace, type arena, builtin types, and
         // creating a way for the interned data to be shared between
         // a module and the namespace.
         let arena = Rc::new(RefCell::new(Arena::new()));
-        
+
         let mut ns = Namespace::builder()
             .arena(Rc::clone(&arena))
             .modules(vec![])
@@ -308,14 +327,12 @@ mod tests {
             .name("std")
             .arena(Rc::clone(&arena))
             .build();
-        
+
         let mut mod_funk_std = funk_std.clone();
-        
+
         ns.register_module(&mut mod_funk_std)?;
-        
-        let builtins: Vec<FunkData> = funkstd::iter()
-            .map(FunkData::primitive)
-            .collect();
+
+        let builtins: Vec<FunkData> = funkstd::iter().map(FunkData::primitive).collect();
         let builtins = vec![(funk_std, builtins)];
         ns.try_commit(&builtins)?;
 
@@ -334,22 +351,20 @@ mod tests {
                 .add_property(("significance", funkstd::r#str));
             Rc::new(ty)
         };
-        
+
         let ReasonForLiving = FunkTy::r#type("ReasonForLiving")
             .add_required_property(("online", funkstd::r#bool))
             .add_multi_link(("f____", Rc::clone(&F____Given)));
 
         let F____Given = Rc::into_inner(F____Given).unwrap();
 
-        let commits = vec![
-            (
-                default, 
-                vec![
-                    FunkData::custom(F____Given), 
-                    FunkData::custom(ReasonForLiving)
-                ]
-            )
-        ];
+        let commits = vec![(
+            default,
+            vec![
+                FunkData::custom(F____Given),
+                FunkData::custom(ReasonForLiving),
+            ],
+        )];
         ns.try_commit(&commits)?;
         Ok(())
     }

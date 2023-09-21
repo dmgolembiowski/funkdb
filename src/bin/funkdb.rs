@@ -1,7 +1,6 @@
 use funk::FunkDb;
+use std::ffi::OsString;
 use typed_builder::TypedBuilder;
-use std::{ffi::OsString};
-
 
 fn main() -> anyhow::Result<()> {
     let argv: Vec<OsString> = std::env::args_os().skip(1_usize).collect();
@@ -13,9 +12,14 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn parse_cli(argv: Vec<OsString>) -> Operation {
-    if argv.is_empty() { return Operation::default(); }
+    if argv.is_empty() {
+        return Operation::default();
+    }
     if argv.len() == 1 {
-        let it = argv[0].to_ascii_lowercase().into_string().expect("valid unicode");
+        let it = argv[0]
+            .to_ascii_lowercase()
+            .into_string()
+            .expect("valid unicode");
         match it.as_str() {
             "create" => {
                 return op_help_create();
@@ -31,27 +35,34 @@ fn parse_cli(argv: Vec<OsString>) -> Operation {
             }
         }
     }
-    
+
     let op = {
-        let it = argv[0].to_ascii_lowercase().into_string().expect("valid unicode");     
+        let it = argv[0]
+            .to_ascii_lowercase()
+            .into_string()
+            .expect("valid unicode");
         match it.as_str() {
-            "create" => {
-                Operation::builder().mode(Mode::Create)
-            }
-            "repl" => {
-                Operation::builder().mode(Mode::EmptyRepl)
-            }
-            "open" => {
-                Operation::builder().mode(Mode::Open)
-            }
+            "create" => Operation::builder().mode(Mode::Create),
+            "repl" => Operation::builder().mode(Mode::EmptyRepl),
+            "open" => Operation::builder().mode(Mode::Open),
             "help" => {
                 let help_term = argv[1].to_ascii_lowercase().into_string().expect("...");
                 match help_term.as_str() {
-                    "create" => { return op_help_create(); }
-                    "repl" => { return op_help_repl(); }
-                    "open" => { return op_help_open(); }
-                    "help" => { return op_help_help(); }
-                    _ => { return Operation::default(); }
+                    "create" => {
+                        return op_help_create();
+                    }
+                    "repl" => {
+                        return op_help_repl();
+                    }
+                    "open" => {
+                        return op_help_open();
+                    }
+                    "help" => {
+                        return op_help_help();
+                    }
+                    _ => {
+                        return Operation::default();
+                    }
                 }
             }
             _ => {
@@ -64,22 +75,27 @@ fn parse_cli(argv: Vec<OsString>) -> Operation {
     // For now, we'll just crash if there's a '--' in the concatenated argv vector
     const DANGER: &str = "--";
     for word in argv.clone().into_iter() {
-        if word.to_ascii_lowercase().into_string().unwrap().contains(DANGER) {
+        if word
+            .to_ascii_lowercase()
+            .into_string()
+            .unwrap()
+            .contains(DANGER)
+        {
             eprintln!("We do not yet handle keyword arguments.");
             return Operation::default();
         }
     }
 
     let op_args: Args = {
-        let inner: Vec<String> = 
-            argv[1..]
-                .to_owned()
-                .into_iter()
-                .map(|x| x.to_str().unwrap().to_string()).collect();
-        Args(inner)        
-    };    
+        let inner: Vec<String> = argv[1..]
+            .to_owned()
+            .into_iter()
+            .map(|x| x.to_str().unwrap().to_string())
+            .collect();
+        Args(inner)
+    };
 
-    op.args(op_args).build()    
+    op.args(op_args).build()
 }
 
 fn op_repl() -> Operation {
@@ -88,26 +104,25 @@ fn op_repl() -> Operation {
 
 fn op_help_create() -> Operation {
     let _op_code = isize::from(Mode::Create);
-    Operation::builder()
-        .mode(Mode::Create)
-        .build()
+    Operation::builder().mode(Mode::Create).build()
 }
 
 fn op_help_open() -> Operation {
     let op_code = isize::from(Mode::Open);
-    Operation::builder().mode(Mode::Help(HelpKind::ModeHelp(op_code))).build()
+    Operation::builder()
+        .mode(Mode::Help(HelpKind::ModeHelp(op_code)))
+        .build()
 }
 
 fn op_help_help() -> Operation {
-    Operation::builder()
-        .mode(Mode::HelpHelp)
-        .build()    
+    Operation::builder().mode(Mode::HelpHelp).build()
 }
 
 fn op_help_repl() -> Operation {
     let op_code = isize::from(Mode::EmptyRepl);
     Operation::builder()
-        .mode(Mode::Help(HelpKind::ModeHelp(op_code))).build()
+        .mode(Mode::Help(HelpKind::ModeHelp(op_code)))
+        .build()
 }
 
 #[non_exhaustive]
@@ -121,23 +136,19 @@ pub(crate) struct Operation {
     kwargs: Option<Kwargs>,
 }
 
-
-
-
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
 pub(crate) struct Args(pub Vec<String>);
 
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
 pub(crate) struct Kwargs(pub Vec<(/* key = */ String, /* value = */ String)>);
 
-
 #[non_exhaustive]
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub(crate) enum Mode {
     HelpHelp,
     Help(HelpKind),
-    Open, // Implies REPL 
-    Create, // Write file (no REPL)
+    Open,      // Implies REPL
+    Create,    // Write file (no REPL)
     EmptyRepl, // Spawn a REPL not attached to any DB file
 }
 impl Default for Mode {
@@ -154,7 +165,7 @@ impl From<Mode> for isize {
             Mode::Open => 1_isize,
             Mode::Create => 2_isize,
             Mode::EmptyRepl => 3_isize,
-            _ => -1_isize, 
+            _ => -1_isize,
         }
     }
 }
@@ -164,13 +175,13 @@ pub(crate) enum HelpKind {
     // Simple command usage
     #[default]
     SimpleHelp,
-    
+
     // To prevent a circular dependency on Mode,
     // [`Mode::Help(HelpKind::ModeHelp(/* mode_num = */ isize))`]
     // will internally match the argument mode string to its corresponding
     // integer. If this match fails, a negative integer is supplied.
     // This means they probably misspelled the subcommand.
-    // In the future, this allows a more refined client to assign a negative 
+    // In the future, this allows a more refined client to assign a negative
     // integer or span of negative integers to a set of most likely candidates
     // for a particular subcommand that was misspelled, leading to helpful
     // behavior like: "Did not recognize `relp`. Did you mean `repl`?"
@@ -193,7 +204,7 @@ impl<'a> From<&'a str> for HelpKind {
     }
 }
 
-pub(crate) fn dispatch(op: Operation) -> anyhow::Result::<()> {
+pub(crate) fn dispatch(op: Operation) -> anyhow::Result<()> {
     match op.mode {
         Mode::Help(kind) => print_help(/* kind = */ kind),
         Mode::HelpHelp => print_helphelp(),
@@ -201,7 +212,7 @@ pub(crate) fn dispatch(op: Operation) -> anyhow::Result::<()> {
         Mode::Create => try_create(op)?,
         Mode::Open => panic!("Not implemented: REPL"),
     };
-    
+
     Ok(())
 }
 
@@ -222,29 +233,29 @@ fn try_create(op: Operation) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod clitest {
-    use super::{dispatch, Operation, Mode, parse_cli, Args, Kwargs, HelpKind};
-    
-    
+    use super::{dispatch, parse_cli, Args, HelpKind, Kwargs, Mode, Operation};
+
     #[test]
     fn cli_parses_new() {
         let expected_args: Args = Args(vec![String::from("test.funk")]);
         let expected_mode = Mode::Create;
-        let expected_op = Operation::builder().mode(expected_mode).args(expected_args).build();
+        let expected_op = Operation::builder()
+            .mode(expected_mode)
+            .args(expected_args)
+            .build();
 
         use std::ffi::OsString;
         let given: Vec<OsString> = vec![OsString::from("create"), OsString::from("test.funk")];
         let actual: Operation = parse_cli(given);
 
-        assert_eq!(expected_op, actual);        
+        assert_eq!(expected_op, actual);
     }
 
     #[test]
     fn prints_simple_help() {
         let _expected_kwargs: Kwargs = Kwargs(vec![]);
         let expected_mode = Mode::Help(HelpKind::SimpleHelp);
-        let expected_op = Operation::builder()
-            .mode(expected_mode)
-            .build();
+        let expected_op = Operation::builder().mode(expected_mode).build();
 
         use std::ffi::OsString;
         let given: Vec<OsString> = vec![OsString::from("help")];
@@ -252,7 +263,7 @@ mod clitest {
 
         assert_eq!(expected_op, actual);
     }
-   
+
     #[test]
     fn parse_mode_help() {
         use std::ffi::OsString;
@@ -290,9 +301,11 @@ mod clitest {
         let result = dispatch(op);
         assert!(result.is_ok());
         let found = std::path::Path::new(dbpath).try_exists();
-        if found.is_err() { panic!("Failed to read file system"); }
+        if found.is_err() {
+            panic!("Failed to read file system");
+        }
         let found = found.unwrap();
         assert!(found);
         std::fs::remove_file(dbpath).unwrap();
-    }    
+    }
 }
