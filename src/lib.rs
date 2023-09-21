@@ -12,11 +12,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn create_disk_persisted() {
+    fn create_disk_persisted() -> anyhow::Result<()> {
         let path = "tmp.funk";
         let mut db = FunkDb::open(&path).expect("it works in testing");
-        assert!(db.save().is_ok());
+        db.save()?;
         assert!(fs::remove_file(db.path).is_ok());
+        Ok(())
     }
 
     #[test]
