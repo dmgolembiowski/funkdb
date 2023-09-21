@@ -16,4 +16,5 @@ anyhow = "1.0.75"
 mry = "0.2.6"
 rusqlite = "0.29.0"
 sled = "0.34.7"
+strum = { version = "0.25.0", features = ["strum_macros", "derive"] }
 typed-builder = "0.16.1"
