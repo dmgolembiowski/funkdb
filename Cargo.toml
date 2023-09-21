@@ -4,8 +4,16 @@ version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+target = "src/lib.rs"
+
+[[bin]]
+name = "funkdb"
+path = "src/bin/funkdb.rs"
 
 [dependencies]
 anyhow = "1.0.75"
 mry = "0.2.6"
 rusqlite = "0.29.0"
+sled = "0.34.7"
+typed-builder = "0.16.1"
