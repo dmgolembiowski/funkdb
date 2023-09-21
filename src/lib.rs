@@ -19,10 +19,20 @@ mod tests {
         assert!(fs::remove_file(db.path).is_ok());
     }
 
-    #[ignore]
     #[test]
     fn create_db_schema_and_apply_it() {
-        todo!("Create the in-memory object of a schema module. Try to prepare a transaction from it."); // Try to apply the transaction.");
+        let test_schema = r#"
+            module default {
+                type F____Given {
+                    required expires: int32;
+                    significance: str,
+                }
+                type ReasonForLiving {
+                    required online: bool;
+                    multi f____: F____Given;
+                }
+            }"#;
+        todo!("Create the in-memory object of a schema module. Prepare a transaction. Commit it. Save to disk."); // Try to apply the transaction.");
     }
 
     #[ignore]
@@ -110,6 +120,9 @@ impl FunkDbServer {
     #[allow(dead_code, unused_variables)]
     pub fn bind(server_path: impl AsRef<Path>, db_path: impl AsRef<Path>) -> anyhow::Result<RawFd> {
         let path = server_path.as_ref().to_string_lossy();
+        let stream = db_path.as_ref().to_string_lossy();
+        let server = UnixListener::bind(db_path)?.set_nonblocking(true);
+        
         bail!("This is not yet implemented");
     } 
 }

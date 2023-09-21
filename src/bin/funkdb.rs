@@ -5,7 +5,9 @@ use anyhow::{Result, Error, bail, anyhow, self as ah};
 
 fn main() -> anyhow::Result<()> {
     let argv: Vec<OsString> = std::env::args_os().into_iter().skip(1_usize).collect();
-    let op = parse_cli(argv);
+    let op = parse_cli(argv.clone());
+    eprintln!("{:?}", &argv);
+    eprintln!("{:?}", &op);
     dispatch(op)?;
     Ok(())
 }
