@@ -32,7 +32,7 @@ impl<'a> Module<'a> {
         self.name.clone()
     }
     #[allow(unreachable_code)]
-    fn add_type(&mut self, r#type: FunkTy<'a>) -> anyhow::Result<()> {
+    fn add_type(&mut self, _type: FunkTy<'a>) -> anyhow::Result<()> {
         // Inspect the arena for the presented `r#type: FunkTy<'a>` 
         // metadata. If an associated `ArenaEntry` is found, we 
         // yeet an error back to the caller.
@@ -58,7 +58,7 @@ impl<'a> ModuleBuilder<'a> {
             arena: None,
         }
     }
-    fn build(mut self) -> Module<'a> {
+    fn build(self) -> Module<'a> {
         let Self { name, arena } = self;
         let name = name.unwrap_or(Cow::from("default"));
         let arena = {
@@ -70,13 +70,13 @@ impl<'a> ModuleBuilder<'a> {
         };
         Module::new(name, arena)
     }
-    fn name<T: Into<Cow<'a, str>>>(mut self, new_name: T) -> Self {
+    fn name<T: Into<Cow<'a, str>>>(self, new_name: T) -> Self {
         Self {
             name: Some(new_name.into()),
             arena: self.arena,
         }
     }
-    fn arena(mut self, new_arena: Rc<RefCell<Arena<'a>>>) -> Self {
+    fn arena(self, new_arena: Rc<RefCell<Arena<'a>>>) -> Self {
         Self {
             name: self.name,
             arena: Some(new_arena),
@@ -94,11 +94,9 @@ struct Namespace<'a> {
 
 impl<'a> Namespace<'a> {
     fn register_module(&mut self, new_module: &'a mut Module<'a>) -> anyhow::Result<()> {
-        if let Some(found) = self
+        if let Some(_found) = self
             .modules
-            .iter()
-            .filter(|ref module| module.get_name() == new_module.get_name())
-            .next()
+            .iter().find(|module| module.get_name() == new_module.get_name())
         {
             bail!("Module registration occurred twice!");
         } else {
@@ -106,7 +104,7 @@ impl<'a> Namespace<'a> {
             Ok(())
         }
     }
-    fn try_commit(&mut self, commits: &Vec<(Module<'a>, Vec<FunkData<'a>>)>) -> anyhow::Result<()> {
+    fn try_commit(&mut self, _commits: &Vec<(Module<'a>, Vec<FunkData<'a>>)>) -> anyhow::Result<()> {
         bail!("Not implemented");
     }
 }
@@ -125,7 +123,7 @@ impl<'arena> Arena<'arena> {
             metadata: BTreeMap::new(),
         }
     }
-    pub fn is_name_available(&self, module_name: &str, identity: &str, field: &str) -> bool {
+    pub fn is_name_available(&self, _module_name: &str, _identity: &str, _field: &str) -> bool {
         // Property and link names shouldn't be disambiguated
         // on a given type.
         true  
@@ -163,6 +161,7 @@ pub type FunkLinkMap<'arena> = BTreeMap::<
     (/* kind */ Rc<FunkTy<'arena>>, /* required: */ bool, /* is_multi: */ bool)>;
 
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct FunkTy<'a> {
     pub type_name: Option<Cow<'a, str>>,
     pub properties: FunkPropMap<'a>,
@@ -181,7 +180,7 @@ impl<'a> FunkTy<'a> {
         let required = false;
         let is_multi = false;
         let typekey: Cow<'a, str> = typekey.into();
-        &mut self.properties.insert(typekey, (property, required, is_multi));
+        self.properties.insert(typekey, (property, required, is_multi));
         self 
     }
 
@@ -190,7 +189,7 @@ impl<'a> FunkTy<'a> {
         let required = false;
         let is_multi = true;
         let typekey: Cow<'a, str> = typekey.into();
-        &mut self.properties.insert(typekey, (multiproperty, required, is_multi));
+        self.properties.insert(typekey, (multiproperty, required, is_multi));
         self 
     }
 
@@ -199,7 +198,7 @@ impl<'a> FunkTy<'a> {
         let required = true;
         let is_multi = false;
         let typekey: Cow<'a, str> = typekey.into();
-        &mut self.properties.insert(typekey, (property, required, is_multi));
+        self.properties.insert(typekey, (property, required, is_multi));
         self 
     }
 
@@ -209,7 +208,7 @@ impl<'a> FunkTy<'a> {
         let required = true;
         let is_multi = true;
         let typekey: Cow<'a, str> = typekey.into();
-        &mut self.properties.insert(typekey, (multiproperty, required, is_multi));
+        self.properties.insert(typekey, (multiproperty, required, is_multi));
         self 
     }
 
@@ -218,7 +217,7 @@ impl<'a> FunkTy<'a> {
         let required = false;
         let is_multi = true;
         let linkkey: Cow<'a, str> = linkkey.into();
-        &mut self.links.insert(linkkey, (multilink, required, is_multi));
+        self.links.insert(linkkey, (multilink, required, is_multi));
         self
     }
 
@@ -227,7 +226,7 @@ impl<'a> FunkTy<'a> {
         let required = false;
         let is_multi = false;
         let linkkey: Cow<'a, str> = linkkey.into();
-        &mut self.links.insert(linkkey, (link, required, is_multi));
+        self.links.insert(linkkey, (link, required, is_multi));
         self
     }
 
@@ -236,7 +235,7 @@ impl<'a> FunkTy<'a> {
         let required = true;
         let is_multi = true;
         let linkkey: Cow<'a, str> = linkkey.into();
-        &mut self.links.insert(linkkey, (multilink, required, is_multi));
+        self.links.insert(linkkey, (multilink, required, is_multi));
         self
     }
 
@@ -247,22 +246,14 @@ impl<'a> FunkTy<'a> {
         let required = true;
         let is_multi = false;
         let linkkey: Cow<'a, str> = linkkey.into();
-        &mut self.links.insert(linkkey, (link, required, is_multi));
+        self.links.insert(linkkey, (link, required, is_multi));
         self
     }
 
        
 }
 
-impl<'a> Default for FunkTy<'a> {
-    fn default() -> Self {
-        Self { 
-            type_name: None,
-            properties: BTreeMap::new(),
-            links: BTreeMap::new(),
-        }
-    }
-}
+
 
 
 #[cfg(test)]
@@ -272,7 +263,7 @@ mod tests {
     #[test]
     fn create_disk_persisted() -> anyhow::Result<()> {
         let path = "tmp.funk";
-        let mut db = FunkDb::open(&path).expect("it works in testing");
+        let mut db = FunkDb::open(path).expect("it works in testing");
         db.save()?;
         assert!(fs::remove_file(db.path).is_ok());
         Ok(())
@@ -313,29 +304,29 @@ mod tests {
             .modules(vec![])
             .build();
 
-        let mut funk_std = Module::builder()
+        let funk_std = Module::builder()
             .name("std")
             .arena(Rc::clone(&arena))
             .build();
         
         let mut mod_funk_std = funk_std.clone();
         
-        &mut ns.register_module(&mut mod_funk_std)?;
+        ns.register_module(&mut mod_funk_std)?;
         
         let builtins: Vec<FunkData> = funkstd::iter()
-            .map(|ty| FunkData::primitive(ty))
+            .map(FunkData::primitive)
             .collect();
         let builtins = vec![(funk_std, builtins)];
-        &mut ns.try_commit(&builtins)?;
+        ns.try_commit(&builtins)?;
 
         // This is where we introduce a user-defined schema
-        let mut default = Module::builder()
+        let default = Module::builder()
             .name("default")
             .arena(Rc::clone(&arena))
             .build();
         let mut mod_default = default.clone();
 
-        &mut ns.register_module(&mut mod_default)?;
+        ns.register_module(&mut mod_default)?;
 
         let F____Given = {
             let ty = FunkTy::r#type("F____Given")
@@ -359,7 +350,7 @@ mod tests {
                 ]
             )
         ];
-        &mut ns.try_commit(&commits)?;
+        ns.try_commit(&commits)?;
         Ok(())
     }
 

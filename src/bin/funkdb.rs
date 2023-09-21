@@ -1,10 +1,10 @@
 use funk::FunkDb;
 use typed_builder::TypedBuilder;
-use std::{ffi::OsString, sync::RwLockWriteGuard};
-use anyhow::{Result, Error, bail, anyhow, self as ah};
+use std::{ffi::OsString};
+
 
 fn main() -> anyhow::Result<()> {
-    let argv: Vec<OsString> = std::env::args_os().into_iter().skip(1_usize).collect();
+    let argv: Vec<OsString> = std::env::args_os().skip(1_usize).collect();
     let op = parse_cli(argv.clone());
     eprintln!("{:?}", &argv);
     eprintln!("{:?}", &op);
@@ -13,9 +13,9 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn parse_cli(argv: Vec<OsString>) -> Operation {
-    if argv.len() == 0 { return Operation::default(); }
+    if argv.is_empty() { return Operation::default(); }
     if argv.len() == 1 {
-        let mut it = argv[0].to_ascii_lowercase().into_string().expect("valid unicode");
+        let it = argv[0].to_ascii_lowercase().into_string().expect("valid unicode");
         match it.as_str() {
             "create" => {
                 return op_help_create();
@@ -32,7 +32,7 @@ fn parse_cli(argv: Vec<OsString>) -> Operation {
         }
     }
     
-    let mut op = {
+    let op = {
         let it = argv[0].to_ascii_lowercase().into_string().expect("valid unicode");     
         match it.as_str() {
             "create" => {
@@ -71,7 +71,7 @@ fn parse_cli(argv: Vec<OsString>) -> Operation {
     }
 
     let op_args: Args = {
-        let mut inner: Vec<String> = 
+        let inner: Vec<String> = 
             argv[1..]
                 .to_owned()
                 .into_iter()
@@ -87,7 +87,7 @@ fn op_repl() -> Operation {
 }
 
 fn op_help_create() -> Operation {
-    let op_code = isize::from(Mode::Create);
+    let _op_code = isize::from(Mode::Create);
     Operation::builder()
         .mode(Mode::Create)
         .build()
@@ -125,7 +125,7 @@ pub(crate) struct Operation {
 
 
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
-pub(crate) struct Args(pub Vec<(/* arg = */ String)>);
+pub(crate) struct Args(pub Vec<String>);
 
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
 pub(crate) struct Kwargs(pub Vec<(/* key = */ String, /* value = */ String)>);
@@ -154,7 +154,7 @@ impl From<Mode> for isize {
             Mode::Open => 1_isize,
             Mode::Create => 2_isize,
             Mode::EmptyRepl => 3_isize,
-            _ => -1 as isize, 
+            _ => -1_isize, 
         }
     }
 }
@@ -188,24 +188,24 @@ impl<'a> From<&'a str> for HelpKind {
             "open" => HelpKind::ModeHelp(1_isize),
             "create" => HelpKind::ModeHelp(2_isize),
             "repl" => HelpKind::ModeHelp(3_isize),
-            _ => HelpKind::ModeHelp(-1 as isize),
+            _ => HelpKind::ModeHelp(-1_isize),
         }
     }
 }
 
 pub(crate) fn dispatch(op: Operation) -> anyhow::Result::<()> {
-    match &op.mode {
-        &Mode::Help(kind) => print_help(/* kind = */ HelpKind::from(kind)),
-        &Mode::HelpHelp => print_helphelp(),
-        &Mode::EmptyRepl => panic!("Not implemented: REPL"),
-        &Mode::Create => try_create(op)?,
-        &Mode::Open => panic!("Not implemented: REPL"),
+    match op.mode {
+        Mode::Help(kind) => print_help(/* kind = */ kind),
+        Mode::HelpHelp => print_helphelp(),
+        Mode::EmptyRepl => panic!("Not implemented: REPL"),
+        Mode::Create => try_create(op)?,
+        Mode::Open => panic!("Not implemented: REPL"),
     };
     
     Ok(())
 }
 
-fn print_help(kind: HelpKind) {
+fn print_help(_kind: HelpKind) {
     println!("Hello");
 }
 
@@ -223,7 +223,7 @@ fn try_create(op: Operation) -> anyhow::Result<()> {
 #[cfg(test)]
 mod clitest {
     use super::{dispatch, Operation, Mode, parse_cli, Args, Kwargs, HelpKind};
-    use funk::FunkDb;
+    
     
     #[test]
     fn cli_parses_new() {
@@ -240,7 +240,7 @@ mod clitest {
 
     #[test]
     fn prints_simple_help() {
-        let expected_kwargs: Kwargs = Kwargs(vec![]);
+        let _expected_kwargs: Kwargs = Kwargs(vec![]);
         let expected_mode = Mode::Help(HelpKind::SimpleHelp);
         let expected_op = Operation::builder()
             .mode(expected_mode)
@@ -258,8 +258,8 @@ mod clitest {
         use std::ffi::OsString;
         fn works(given: &str) -> bool {
             let mut got: Vec<OsString> = vec![];
-            for give in given.split(' ').into_iter() {
-                &mut got.push(OsString::from(give));
+            for give in given.split(' ') {
+                got.push(OsString::from(give));
             }
             parse_cli(got).mode == Mode::Help(HelpKind::SimpleHelp)
         }
