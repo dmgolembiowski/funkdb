@@ -28,15 +28,15 @@ impl<'a> Module<'a> {
     pub fn builder() -> ModuleBuilder<'a> {
         ModuleBuilder::new()
     }
-    pub fn get_name(&self) -> Cow<'a, str> {
-        self.name.clone()
+    pub fn get_name(&self) -> &Cow<'a, str> {
+        &self.name
     }
     #[allow(unreachable_code)]
     fn add_type(&mut self, _type: FunkTy<'a>) -> anyhow::Result<()> {
         // Inspect the interner for the presented `r#type: FunkTy<'a>`
         // metadata. If an associated `InternerEntry` is found, we
         // yeet an error back to the caller.
-        bail!("Not implemented");
+        bail!("`add_type` Not implemented");
         todo!("Define an `InternerEntry` that can be stored and later retrieved");
         todo!("Encode `r#type`'s metadata as a bytestream.");
         todo!("Commit the new metadata into the Interner");
@@ -107,9 +107,26 @@ impl<'a> Namespace<'a> {
     }
     fn try_commit(
         &mut self,
-        _commits: &Vec<(Module<'a>, Vec<FunkData<'a>>)>,
+        commits: &Vec<(Module<'a>, Vec<FunkData<'a>>)>,
     ) -> anyhow::Result<()> {
-        bail!("Not implemented");
+        // For each of the modules we want to verify the type submission
+        // as a unique entry. If a single type submission cannot be completed,
+        // yeet the error back to the caller.
+        // 
+        // If the type has an external property or link outside of the current 
+        // module, check the interner for name resolution.
+        let it: Interner<'_> = self.interner.into_inner();
+        for commit in commits {
+            let (module, submissions): &(Module, Vec<FunkData>) = commit;
+            for funkdata in submissions {
+                let module_name = Some(module.get_name());
+                let type_name = Some(funkdata.get_name().unwrap());
+                if it.is_name_available(module_name, type_name, None) {
+                    bail!("Do this later");
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -135,6 +152,7 @@ struct Key<'a> {
     assignment: Option<Cow<'a, str>>,
 }
 
+#[doc(hidden)]
 macro_rules! key {
     ($($type_field:ident = $type_value:expr),* $(,)?) => {
         Key {
@@ -195,6 +213,26 @@ pub enum FunkData<'interner> {
     custom(FunkTy<'interner>),
 }
 
+trait Named {
+    fn get_name(&self) -> Option<&str> {
+        <_>::default()
+    }    
+}
+
+impl<'interner> Named for FunkData<'interner> {
+    fn get_name(&self) -> Option<&'interner str> {
+        // make it stop, this is horribly boring
+        match self {
+            Self::primitive(funky_primitive_ty) => {
+                funky_primitive_ty.get_name()
+            }
+            Self::custom(funky_custom_ty) => {
+                funky_custom_ty.get_name()
+            }
+        }
+    }
+}
+
 #[derive(EnumIter, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum funkstd {
     r#bool,
@@ -209,6 +247,26 @@ pub enum funkstd {
     uint32,
     uint64,
     uint128,
+}
+
+impl Named for funkstd {
+    fn get_name(&self) -> Option<&str> {
+        match self {
+            Self::bool => Some("bool"),
+            Self::int8 => Some("int8"),
+            Self::int16 => Some("int16"),
+            Self::int32 => Some("int32"),
+            Self::int64 => Some("int64"),
+            Self::int128 => Some("int128"),
+            Self::uint8 => Some("uint8"),
+            Self::uint16 => Some("uint16"),
+            Self::uint32 => Some("uint32"),
+            Self::uint64 => Some("uint64"),
+            Self::uint128 => Some("uint128"),
+            Self::str => Some("str"),
+            Self::bool => Some("bool"),
+        }
+    }
 }
 
 pub type FunkPropMap<'interner> = BTreeMap<
@@ -329,6 +387,14 @@ impl<'a> FunkTy<'a> {
     }
 }
 
+impl<'ugh> Named for FunkTy<'ugh> {
+    fn get_name(&self) -> Option<&str> {
+        let cow = self.type_name.unwrap();
+        let name = cow.get(0..).unwrap();
+        Some(name)        
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -356,13 +422,13 @@ mod tests {
         // because I'm writing FunkDB to be compatible with it.
         /*
             module default {
-                type F____Given {
+                type FunksGiven {
                     required expires: int32;
                     significance: str,
                 }
                 type ReasonForLiving {
                     required online: bool;
-                    multi f____: F____Given;
+                    multi given: FunksGiven;
                 }
             }
         */
@@ -399,8 +465,8 @@ mod tests {
 
         ns.register_module(&mut mod_default)?;
 
-        let F____Given = {
-            let ty = FunkTy::r#type("F____Given")
+        let FunksGiven = {
+            let ty = FunkTy::r#type("FunksGiven")
                 .add_required_property(("expires", funkstd::int32))
                 .add_property(("significance", funkstd::r#str));
             Rc::new(ty)
@@ -408,14 +474,14 @@ mod tests {
 
         let ReasonForLiving = FunkTy::r#type("ReasonForLiving")
             .add_required_property(("online", funkstd::r#bool))
-            .add_multi_link(("f____", Rc::clone(&F____Given)));
+            .add_multi_link(("funks", Rc::clone(&FunksGiven)));
 
-        let F____Given = Rc::into_inner(F____Given).unwrap();
+        let FunksGiven = Rc::into_inner(FunksGiven).unwrap();
 
         let commits = vec![(
             default,
             vec![
-                FunkData::custom(F____Given),
+                FunkData::custom(FunksGiven),
                 FunkData::custom(ReasonForLiving),
             ],
         )];
@@ -482,11 +548,11 @@ impl FunkDb {
         db_path: impl AsRef<Path>,
     ) -> anyhow::Result<()> {
         let _sfd = FunkDbServer::bind(server_path, db_path)?;
-        todo!("Not implemented");
+        todo!("`new_server` Not implemented");
     }
     pub fn save(&mut self) -> anyhow::Result<()> {
         if self.stream.is_some() {
-            bail!("Not implemented!");
+            bail!("`save` not implemented!");
         }
         self.file.sync_all()?;
         Ok(())
