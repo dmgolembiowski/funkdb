@@ -219,6 +219,19 @@ trait Named {
     }    
 }
 
+impl<'interner> Named for FunkData<'interner> {
+    fn get_name(&self) -> Option<&'interner str> {
+        // make it stop, this is horribly boring
+        match self {
+            Self::primitive(funky_primitive_ty) => {
+                funky_primitive_ty.get_name()
+            }
+            Self::custom(funky_custom_ty) => {
+                funky_custom_ty.get_name()
+            }
+        }
+    }
+}
 
 #[derive(EnumIter, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum funkstd {
