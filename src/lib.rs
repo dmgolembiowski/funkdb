@@ -20,26 +20,6 @@ struct Module<'a> {
     interner: Rc<RefCell<Interner<'a>>>,
 }
 
-/*
-// Can I replace the builtin implementation with this one?
-
-use std::borrow::Borrow;
-
-impl<'a> Borrow<Module<'a>> for Module<'a> {
-    fn borrow(&'a self) -> &'a Module<'a> {
-        let Self { name, interner } = self;
-        let name = match name {
-            Cow::Owned(name_string) => Cow::Borrowed(name_string.as_str()),
-            Cow::Borrowed(name_ref) => Cow::Borrowed(name_ref),
-        };
-        let interner = Rc::clone(interner);
-        Box::leak(Box::new(Self { name, interner }))
-
-    }
-}
-*/
-
-
 impl<'a> Module<'a> {
     #[doc(hidden)]
     pub fn new(name: Cow<'a, str>, interner: Rc<RefCell<Interner<'a>>>) -> Self {
@@ -259,20 +239,6 @@ impl<'interner> Interner<'interner> {
             }
         }
     }
-
-    /*
-    fn commit_module(&'interner mut self, entry: FunkData<'interner>) {
-        match entry {
-            FunkData::primitive(funk_std) => {
-                let r#mod = Some(Cow::Owned("std".to_string()));
-                assert!(self.metadata.insert((r#mod, None, None), entry).is_none());
-            }
-            FunkData::custom(ref funk_ty) => {
-                assert!(self.metadata.insert((funk_ty.type_name.clone(), None, None), entry).is_none());
-            }
-        }        
-    }
-    */
 
     fn commit_module(&'interner mut self, module: &Module<'interner>) {
         let r#mod = FunkData::nil;
