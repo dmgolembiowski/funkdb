@@ -1,4 +1,4 @@
-#![allow(unused_imports)]
+#![allow(unused_imports, non_snake_case, non_camel_case_types, dead_code)]
 use anyhow::{self as ah, anyhow, bail, Error, Result};
 use std::borrow::Cow;
 use std::cell::{RefCell, RefMut};
@@ -131,10 +131,10 @@ impl<'arena> Arena<'arena> {
             metadata: BTreeMap::new(),
         }
     }
-    pub fn is_name_available(&self, _module_name: &str, _identity: &str, _field: &str) -> bool {
+    pub fn is_name_available(&self, _module_name: Option<&str>, _identity: Option<&str>, _field: Option<&str>) -> bool {
         // Property and link names shouldn't be disambiguated
         // on a given type.
-        true
+        todo!("Check the arena for name availability on a module level, a module::identity level, and a module::identity.field level");
     }
 }
 
