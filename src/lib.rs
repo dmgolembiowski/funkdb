@@ -114,32 +114,78 @@ impl<'a> Namespace<'a> {
 }
 
 #[derive(Debug, Clone)]
-struct Interner<'interner> {
-    metadata: BTreeMap<
-        (
-            /* module_name = */ Cow<'interner, str>,
-            /* identity = */ Cow<'interner, str>,
-            /* assignment = */ Cow<'interner, str>,
-        ),
-        FunkData<'interner>,
-    >,
+pub(crate) struct Interner<'interner> {
+    pub metadata: MetaMap<'interner>,
+}
+
+pub type MetaMap<'a> = BTreeMap<
+    (
+        /* module_name = */ Option<Cow<'a, str>>,
+        /*    identity = */ Option<Cow<'a, str>>,
+        /*  assignment = */ Option<Cow<'a, str>>,
+    ),
+    FunkData<'a>,
+>;
+
+#[doc(hidden)]
+#[derive(Default)]
+struct Key<'a> {
+    r#mod: Option<Cow<'a, str>>,
+    identity: Option<Cow<'a, str>>,
+    assignment: Option<Cow<'a, str>>,
+}
+
+macro_rules! key {
+    ($($type_field:ident = $type_value:expr),* $(,)?) => {
+        Key {
+            $(
+                $type_field: Some(Cow::Borrowed($type_value)),
+            )*
+            ..<_>::default()
+        }
+    }
 }
 
 impl<'interner> Interner<'interner> {
     pub fn new() -> Self {
         Interner {
-            metadata: BTreeMap::new(),
+            metadata: MetaMap::new(),
         }
     }
     pub fn is_name_available(
         &self,
-        _module_name: Option<&str>,
-        _identity: Option<&str>,
-        _field: Option<&str>,
+        module_name: Option<&str>,
+        identity: Option<&str>,
+        field: Option<&str>,
     ) -> bool {
+        
         // Property and link names shouldn't be disambiguated
         // on a given type.
-        todo!("Check the interner for name availability on a module level, a module::identity level, and a module::identity.field level");
+        // todo!("Check the interner for name availability on a module level, a module::identity level, and a module::identity.field level");
+        match (module_name, identity, field) {
+            (Some(module), Some(ident), Some(link_or_prop)) => {
+                let k = key!{
+                    r#mod = module,
+                    identity = ident,
+                    assignment = link_or_prop,
+                };
+                self.metadata.get(&(k.r#mod, k.identity, k.assignment)).is_none()
+            }
+            (Some(module), Some(ident), None) => {
+                let k = key!{
+                    r#mod = module,
+                    identity = ident,
+                };
+                self.metadata.get(&(k.r#mod, k.identity, k.assignment)).is_none()
+            }
+            (Some(module), None, None) => {
+                let k = key!{ r#mod = module };
+                self.metadata.get(&(k.r#mod, k.identity, k.assignment)).is_none()
+            }
+            _ => {
+                panic!("Verify the arguments passed to is_name_available");
+            }
+        }
     }
 }
 
