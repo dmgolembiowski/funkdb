@@ -107,9 +107,26 @@ impl<'a> Namespace<'a> {
     }
     fn try_commit(
         &mut self,
-        _commits: &Vec<(Module<'a>, Vec<FunkData<'a>>)>,
+        commits: &Vec<(Module<'a>, Vec<FunkData<'a>>)>,
     ) -> anyhow::Result<()> {
-        bail!("`try_commit` Not implemented");
+        // For each of the modules we want to verify the type submission
+        // as a unique entry. If a single type submission cannot be completed,
+        // yeet the error back to the caller.
+        // 
+        // If the type has an external property or link outside of the current 
+        // module, check the interner for name resolution.
+        let it: Interner<'_> = self.interner.into_inner();
+        for commit in commits {
+            let (module, submissions): &(Module, Vec<FunkData>) = commit;
+            for funkdata in submissions {
+                let module_name = Some(module.get_name());
+                let type_name = Some(funkdata.get_name().unwrap());
+                if it.is_name_available(module_name, type_name, None) {
+                    bail!("Do this later");
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -196,6 +213,13 @@ pub enum FunkData<'interner> {
     custom(FunkTy<'interner>),
 }
 
+trait Named {
+    fn get_name(&self) -> Option<&str> {
+        <_>::default()
+    }    
+}
+
+
 #[derive(EnumIter, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum funkstd {
     r#bool,
@@ -210,6 +234,26 @@ pub enum funkstd {
     uint32,
     uint64,
     uint128,
+}
+
+impl Named for funkstd {
+    fn get_name(&self) -> Option<&str> {
+        match self {
+            Self::bool => Some("bool"),
+            Self::int8 => Some("int8"),
+            Self::int16 => Some("int16"),
+            Self::int32 => Some("int32"),
+            Self::int64 => Some("int64"),
+            Self::int128 => Some("int128"),
+            Self::uint8 => Some("uint8"),
+            Self::uint16 => Some("uint16"),
+            Self::uint32 => Some("uint32"),
+            Self::uint64 => Some("uint64"),
+            Self::uint128 => Some("uint128"),
+            Self::str => Some("str"),
+            Self::bool => Some("bool"),
+        }
+    }
 }
 
 pub type FunkPropMap<'interner> = BTreeMap<
@@ -327,6 +371,14 @@ impl<'a> FunkTy<'a> {
         let linkkey: Cow<'a, str> = linkkey.into();
         self.links.insert(linkkey, (link, required, is_multi));
         self
+    }
+}
+
+impl<'ugh> Named for FunkTy<'ugh> {
+    fn get_name(&self) -> Option<&str> {
+        let cow = self.type_name.unwrap();
+        let name = cow.get(0..).unwrap();
+        Some(name)        
     }
 }
 
