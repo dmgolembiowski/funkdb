@@ -109,19 +109,24 @@ impl<'a> Namespace<'a> {
         &mut self,
         commits: &Vec<(Module<'a>, Vec<FunkData<'a>>)>,
     ) -> anyhow::Result<()> {
+        use std::ops::Deref;
         // For each of the modules we want to verify the type submission
         // as a unique entry. If a single type submission cannot be completed,
         // yeet the error back to the caller.
         // 
         // If the type has an external property or link outside of the current 
         // module, check the interner for name resolution.
-        let it: Interner<'_> = self.interner.into_inner();
+        let it = self.interner.borrow_mut();
         for commit in commits {
             let (module, submissions): &(Module, Vec<FunkData>) = commit;
             for funkdata in submissions {
-                let module_name = Some(module.get_name());
-                let type_name = Some(funkdata.get_name().unwrap());
-                if it.is_name_available(module_name, type_name, None) {
+                let module_name = module.get_name().to_owned();
+                let type_name = funkdata.get_name().unwrap().to_owned();
+                if it.is_name_available(
+                        Some(module_name.as_ref()), 
+                        Some(type_name.as_ref()), 
+                        None) 
+                {
                     bail!("Do this later");
                 }
             }
@@ -213,14 +218,14 @@ pub enum FunkData<'interner> {
     custom(FunkTy<'interner>),
 }
 
-trait Named {
-    fn get_name(&self) -> Option<&str> {
+trait Named<'a> {
+    fn get_name(&'a self) -> Option<&'a str> {
         <_>::default()
     }    
 }
 
-impl<'interner> Named for FunkData<'interner> {
-    fn get_name(&self) -> Option<&'interner str> {
+impl<'interner> Named<'interner> for FunkData<'interner> {
+    fn get_name(&'interner self) -> Option<&'interner str> {
         // make it stop, this is horribly boring
         match self {
             Self::primitive(funky_primitive_ty) => {
@@ -249,8 +254,8 @@ pub enum funkstd {
     uint128,
 }
 
-impl Named for funkstd {
-    fn get_name(&self) -> Option<&str> {
+impl Named<'_> for funkstd {
+    fn get_name(&'_ self) -> Option<&'_ str> {
         match self {
             Self::bool => Some("bool"),
             Self::int8 => Some("int8"),
@@ -387,9 +392,9 @@ impl<'a> FunkTy<'a> {
     }
 }
 
-impl<'ugh> Named for FunkTy<'ugh> {
-    fn get_name(&self) -> Option<&str> {
-        let cow = self.type_name.unwrap();
+impl<'interner> Named<'interner> for FunkTy<'interner> {
+    fn get_name(&'interner self) -> Option<&'interner str> {
+        let cow = self.type_name.as_ref().unwrap();
         let name = cow.get(0..).unwrap();
         Some(name)        
     }
