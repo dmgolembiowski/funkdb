@@ -1,6 +1,6 @@
 #![allow(unused_imports, non_snake_case, non_camel_case_types, dead_code)]
 use anyhow::{self as ah, anyhow, bail, Error, Result};
-use std::borrow::Cow;
+use std::borrow::{Cow, BorrowMut};
 use std::cell::{RefCell, RefMut};
 use std::collections::BTreeMap;
 use std::fs::{self, File};
@@ -13,11 +13,32 @@ use std::thread;
 use strum::{EnumIter, IntoEnumIterator};
 use typed_builder::TypedBuilder;
 
+// Note: Module<'a> automatically implements ToOwned and Borrow<Self<'_>>
 #[derive(Debug, Clone)]
 struct Module<'a> {
     name: Cow<'a, str>,
     interner: Rc<RefCell<Interner<'a>>>,
 }
+
+/*
+// Can I replace the builtin implementation with this one?
+
+use std::borrow::Borrow;
+
+impl<'a> Borrow<Module<'a>> for Module<'a> {
+    fn borrow(&'a self) -> &'a Module<'a> {
+        let Self { name, interner } = self;
+        let name = match name {
+            Cow::Owned(name_string) => Cow::Borrowed(name_string.as_str()),
+            Cow::Borrowed(name_ref) => Cow::Borrowed(name_ref),
+        };
+        let interner = Rc::clone(interner);
+        Box::leak(Box::new(Self { name, interner }))
+
+    }
+}
+*/
+
 
 impl<'a> Module<'a> {
     #[doc(hidden)]
@@ -89,11 +110,11 @@ struct Namespace<'a> {
     #[builder]
     interner: Rc<RefCell<Interner<'a>>>,
     #[builder]
-    modules: Vec<&'a mut Module<'a>>,
+    modules: Vec<Cow<'a, Module<'a>>>,
 }
 
 impl<'a> Namespace<'a> {
-    fn register_module(&mut self, new_module: &'a mut Module<'a>) -> anyhow::Result<()> {
+    fn register_module(&'a mut self, new_module: &'a mut Module<'a>) -> anyhow::Result<()> {
         if let Some(_found) = self
             .modules
             .iter()
@@ -101,9 +122,16 @@ impl<'a> Namespace<'a> {
         {
             bail!("Module registration occurred twice!");
         } else {
-            self.modules.push(new_module);
-            Ok(())
+            self.modules.push(Cow::Borrowed(new_module));
+            Box::leak(
+                Box::new(
+                    self.interner
+                        .borrow_mut()
+                        .take()
+                )
+            ).commit_module(&new_module);
         }
+        Ok(())
     }
     fn try_commit(
         &mut self,
@@ -116,18 +144,39 @@ impl<'a> Namespace<'a> {
         // 
         // If the type has an external property or link outside of the current 
         // module, check the interner for name resolution.
-        let it = self.interner.borrow_mut();
+        let mut errors = vec![];
+        
         for commit in commits {
             let (module, submissions): &(Module, Vec<FunkData>) = commit;
+
+            // First we need to verify that a given module has not been taken
+            // before introspecting the module-level types, abstract types,
+            // triggers, mutations, traits, or even properties and links on those types.
+            let module_name = module.get_name().to_owned();
+
+            if !self.interner.borrow().is_name_available(
+                    Some(module_name.as_ref()), 
+                    None, 
+                    None) 
+            {
+                errors.push(anyhow!("Module {0}: already defined!", module_name.as_ref()));
+                continue;
+            }
+            
             for funkdata in submissions {
-                let module_name = module.get_name().to_owned();
                 let type_name = funkdata.get_name().unwrap().to_owned();
-                if it.is_name_available(
+                if !self.interner.borrow().is_name_available(
                         Some(module_name.as_ref()), 
                         Some(type_name.as_ref()), 
                         None) 
                 {
-                    bail!("Do this later");
+                    errors.push(anyhow!("Schema level name `{0}::{1}` was defined more than once.", 
+                        module_name.as_ref(), 
+                        type_name
+                    ));
+                    continue;
+                } else {
+                    
                 }
             }
         }
@@ -135,7 +184,7 @@ impl<'a> Namespace<'a> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Default, Debug, Clone)]
 pub(crate) struct Interner<'interner> {
     pub metadata: MetaMap<'interner>,
 }
@@ -210,12 +259,48 @@ impl<'interner> Interner<'interner> {
             }
         }
     }
+
+    /*
+    fn commit_module(&'interner mut self, entry: FunkData<'interner>) {
+        match entry {
+            FunkData::primitive(funk_std) => {
+                let r#mod = Some(Cow::Owned("std".to_string()));
+                assert!(self.metadata.insert((r#mod, None, None), entry).is_none());
+            }
+            FunkData::custom(ref funk_ty) => {
+                assert!(self.metadata.insert((funk_ty.type_name.clone(), None, None), entry).is_none());
+            }
+        }        
+    }
+    */
+
+    fn commit_module(&'interner mut self, module: &Module<'interner>) {
+        let r#mod = FunkData::nil;
+        assert!(self.metadata.insert((Some(module.name.to_owned()), None, None), r#mod).is_none());
+    }
+
+    fn commit_member(&'interner mut self, entry: FunkData<'interner>) {
+        match entry {
+            FunkData::primitive(funk_std) => {
+                let r#mod = Some(Cow::Owned("std".to_string()));
+                let member = Some(Cow::Owned(funk_std.get_name().unwrap().to_string()));
+                assert!(self.metadata.insert((r#mod, member, None), entry).is_none());
+            }
+            FunkData::custom(ref funk_ty) => {
+                assert!(self.metadata.insert((funk_ty.type_name.clone(), None, None), entry).is_none());
+            }
+            FunkData::nil => { panic!("Incorrect usage of `commit_member`. Use `commit_module` instead."); }
+        }        
+    }
+
+    
 }
 
 #[derive(Debug, Clone)]
 pub enum FunkData<'interner> {
     primitive(funkstd),
     custom(FunkTy<'interner>),
+    nil,
 }
 
 trait Named<'a> {
@@ -233,6 +318,10 @@ impl<'interner> Named<'interner> for FunkData<'interner> {
             }
             Self::custom(funky_custom_ty) => {
                 funky_custom_ty.get_name()
+            }
+            Self::nil => {
+                eprintln!("Usage error: try referring to `.type_name` on the module");
+                Some("{unknown}")
             }
         }
     }
