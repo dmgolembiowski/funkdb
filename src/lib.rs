@@ -16,13 +16,13 @@ use typed_builder::TypedBuilder;
 #[derive(Debug, Clone)]
 struct Module<'a> {
     name: Cow<'a, str>,
-    arena: Rc<RefCell<Arena<'a>>>,
+    interner: Rc<RefCell<Interner<'a>>>,
 }
 
 impl<'a> Module<'a> {
     #[doc(hidden)]
-    pub fn new(name: Cow<'a, str>, arena: Rc<RefCell<Arena<'a>>>) -> Self {
-        Self { name, arena }
+    pub fn new(name: Cow<'a, str>, interner: Rc<RefCell<Interner<'a>>>) -> Self {
+        Self { name, interner }
     }
     #[doc(hidden)]
     pub fn builder() -> ModuleBuilder<'a> {
@@ -33,13 +33,13 @@ impl<'a> Module<'a> {
     }
     #[allow(unreachable_code)]
     fn add_type(&mut self, _type: FunkTy<'a>) -> anyhow::Result<()> {
-        // Inspect the arena for the presented `r#type: FunkTy<'a>`
-        // metadata. If an associated `ArenaEntry` is found, we
+        // Inspect the interner for the presented `r#type: FunkTy<'a>`
+        // metadata. If an associated `InternerEntry` is found, we
         // yeet an error back to the caller.
         bail!("Not implemented");
-        todo!("Define an `ArenaEntry` that can be stored and later retrieved");
+        todo!("Define an `InternerEntry` that can be stored and later retrieved");
         todo!("Encode `r#type`'s metadata as a bytestream.");
-        todo!("Commit the new metadata into the Arena");
+        todo!("Commit the new metadata into the Interner");
     }
 }
 
@@ -47,7 +47,7 @@ impl<'a> Module<'a> {
 #[derive(Debug, Clone)]
 struct ModuleBuilder<'a> {
     name: Option<Cow<'a, str>>,
-    arena: Option<Rc<RefCell<Arena<'a>>>>,
+    interner: Option<Rc<RefCell<Interner<'a>>>>,
 }
 
 #[doc(hidden)]
@@ -55,31 +55,31 @@ impl<'a> ModuleBuilder<'a> {
     pub fn new() -> Self {
         Self {
             name: None,
-            arena: None,
+            interner: None,
         }
     }
     fn build(self) -> Module<'a> {
-        let Self { name, arena } = self;
+        let Self { name, interner } = self;
         let name = name.unwrap_or(Cow::from("default"));
-        let arena = {
-            if let Some(thing) = arena {
+        let interner = {
+            if let Some(thing) = interner {
                 thing
             } else {
-                Rc::new(RefCell::new(Arena::new()))
+                Rc::new(RefCell::new(Interner::new()))
             }
         };
-        Module::new(name, arena)
+        Module::new(name, interner)
     }
     fn name<T: Into<Cow<'a, str>>>(self, new_name: T) -> Self {
         Self {
             name: Some(new_name.into()),
-            arena: self.arena,
+            interner: self.interner,
         }
     }
-    fn arena(self, new_arena: Rc<RefCell<Arena<'a>>>) -> Self {
+    fn interner(self, new_interner: Rc<RefCell<Interner<'a>>>) -> Self {
         Self {
             name: self.name,
-            arena: Some(new_arena),
+            interner: Some(new_interner),
         }
     }
 }
@@ -87,7 +87,7 @@ impl<'a> ModuleBuilder<'a> {
 #[derive(TypedBuilder, Debug)]
 struct Namespace<'a> {
     #[builder]
-    arena: Rc<RefCell<Arena<'a>>>,
+    interner: Rc<RefCell<Interner<'a>>>,
     #[builder]
     modules: Vec<&'a mut Module<'a>>,
 }
@@ -114,34 +114,39 @@ impl<'a> Namespace<'a> {
 }
 
 #[derive(Debug, Clone)]
-struct Arena<'arena> {
+struct Interner<'interner> {
     metadata: BTreeMap<
         (
-            /* module_name = */ Cow<'arena, str>,
-            /* identity = */ Cow<'arena, str>,
-            /* assignment = */ Cow<'arena, str>,
+            /* module_name = */ Cow<'interner, str>,
+            /* identity = */ Cow<'interner, str>,
+            /* assignment = */ Cow<'interner, str>,
         ),
-        FunkData<'arena>,
+        FunkData<'interner>,
     >,
 }
 
-impl<'arena> Arena<'arena> {
+impl<'interner> Interner<'interner> {
     pub fn new() -> Self {
-        Arena {
+        Interner {
             metadata: BTreeMap::new(),
         }
     }
-    pub fn is_name_available(&self, _module_name: Option<&str>, _identity: Option<&str>, _field: Option<&str>) -> bool {
+    pub fn is_name_available(
+        &self,
+        _module_name: Option<&str>,
+        _identity: Option<&str>,
+        _field: Option<&str>,
+    ) -> bool {
         // Property and link names shouldn't be disambiguated
         // on a given type.
-        todo!("Check the arena for name availability on a module level, a module::identity level, and a module::identity.field level");
+        todo!("Check the interner for name availability on a module level, a module::identity level, and a module::identity.field level");
     }
 }
 
 #[derive(Debug, Clone)]
-pub enum FunkData<'arena> {
+pub enum FunkData<'interner> {
     primitive(funkstd),
-    custom(FunkTy<'arena>),
+    custom(FunkTy<'interner>),
 }
 
 #[derive(EnumIter, Debug, Clone, Copy, PartialEq, Eq)]
@@ -160,8 +165,8 @@ pub enum funkstd {
     uint128,
 }
 
-pub type FunkPropMap<'arena> = BTreeMap<
-    Cow<'arena, str>,
+pub type FunkPropMap<'interner> = BTreeMap<
+    Cow<'interner, str>,
     (
         /* kind */ funkstd,
         /* required: */ bool,
@@ -169,10 +174,10 @@ pub type FunkPropMap<'arena> = BTreeMap<
     ),
 >;
 
-pub type FunkLinkMap<'arena> = BTreeMap<
-    Cow<'arena, str>,
+pub type FunkLinkMap<'interner> = BTreeMap<
+    Cow<'interner, str>,
     (
-        /* kind */ Rc<FunkTy<'arena>>,
+        /* kind */ Rc<FunkTy<'interner>>,
         /* required: */ bool,
         /* is_multi: */ bool,
     ),
@@ -232,7 +237,10 @@ impl<'a> FunkTy<'a> {
         self
     }
 
-    fn add_multi_link<'arena, T: Into<Cow<'a, str>>>(mut self, link: (T, Rc<FunkTy<'a>>)) -> Self {
+    fn add_multi_link<'interner, T: Into<Cow<'a, str>>>(
+        mut self,
+        link: (T, Rc<FunkTy<'a>>),
+    ) -> Self {
         let (linkkey, multilink) = link;
         let required = false;
         let is_multi = true;
@@ -241,7 +249,7 @@ impl<'a> FunkTy<'a> {
         self
     }
 
-    fn add_link<'arena, T: Into<Cow<'a, str>>>(mut self, link: (T, Rc<FunkTy<'a>>)) -> Self {
+    fn add_link<'interner, T: Into<Cow<'a, str>>>(mut self, link: (T, Rc<FunkTy<'a>>)) -> Self {
         let (linkkey, link) = link;
         let required = false;
         let is_multi = false;
@@ -250,7 +258,7 @@ impl<'a> FunkTy<'a> {
         self
     }
 
-    fn add_required_multi_link<'arena, T: Into<Cow<'a, str>>>(
+    fn add_required_multi_link<'interner, T: Into<Cow<'a, str>>>(
         mut self,
         link: (T, Rc<FunkTy<'a>>),
     ) -> Self {
@@ -262,7 +270,7 @@ impl<'a> FunkTy<'a> {
         self
     }
 
-    fn add_required_link<'arena, T: Into<Cow<'a, str>>>(
+    fn add_required_link<'interner, T: Into<Cow<'a, str>>>(
         mut self,
         link: (T, Rc<FunkTy<'a>>),
     ) -> Self {
@@ -313,19 +321,19 @@ mod tests {
             }
         */
 
-        // Preparing the namespace, type arena, builtin types, and
+        // Preparing the namespace, type interner, builtin types, and
         // creating a way for the interned data to be shared between
         // a module and the namespace.
-        let arena = Rc::new(RefCell::new(Arena::new()));
+        let interner = Rc::new(RefCell::new(Interner::new()));
 
         let mut ns = Namespace::builder()
-            .arena(Rc::clone(&arena))
+            .interner(Rc::clone(&interner))
             .modules(vec![])
             .build();
 
         let funk_std = Module::builder()
             .name("std")
-            .arena(Rc::clone(&arena))
+            .interner(Rc::clone(&interner))
             .build();
 
         let mut mod_funk_std = funk_std.clone();
@@ -339,7 +347,7 @@ mod tests {
         // This is where we introduce a user-defined schema
         let default = Module::builder()
             .name("default")
-            .arena(Rc::clone(&arena))
+            .interner(Rc::clone(&interner))
             .build();
         let mut mod_default = default.clone();
 
