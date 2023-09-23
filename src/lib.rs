@@ -8,21 +8,23 @@ use std::fs::{self, File};
 use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use std::thread;
 use strum::{EnumIter, IntoEnumIterator};
 use typed_builder::TypedBuilder;
+use std::cell::UnsafeCell;
 
 // Note: Module<'a> automatically implements ToOwned and Borrow<Self<'_>>
 #[derive(Debug, Clone)]
 struct Module<'a> {
     name: Cow<'a, str>,
-    interner: Rc<RefCell<Interner<'a>>>,
+    interner: Weak<RefCell<Interner<'a>>>,
 }
 
 impl<'a> Module<'a> {
     #[doc(hidden)]
-    pub fn new(name: Cow<'a, str>, interner: Rc<RefCell<Interner<'a>>>) -> Self {
+    pub fn new(name: Cow<'a, str>, interner: &'a Rc<RefCell<Interner<'a>>>) -> Self {
+        let interner = Rc::downgrade(interner);
         Self { name, interner }
     }
     #[doc(hidden)]
@@ -48,7 +50,7 @@ impl<'a> Module<'a> {
 #[derive(Debug, Clone)]
 struct ModuleBuilder<'a> {
     name: Option<Cow<'a, str>>,
-    interner: Option<Rc<RefCell<Interner<'a>>>>,
+    interner: Option<Weak<RefCell<Interner<'a>>>>,
 }
 
 #[doc(hidden)]
@@ -77,7 +79,7 @@ impl<'a> ModuleBuilder<'a> {
             interner: self.interner,
         }
     }
-    fn interner(self, new_interner: Rc<RefCell<Interner<'a>>>) -> Self {
+    fn interner(self, new_interner: &Rc<RefCell<Interner<'a>>>) -> Self {
         Self {
             name: self.name,
             interner: Some(new_interner),
@@ -88,13 +90,13 @@ impl<'a> ModuleBuilder<'a> {
 #[derive(TypedBuilder, Debug)]
 struct Namespace<'a> {
     #[builder]
-    interner: Rc<RefCell<Interner<'a>>>,
+    interner: Rc<Box<Interner<'a>>>,
     #[builder]
     modules: Vec<Cow<'a, Module<'a>>>,
 }
 
 impl<'a> Namespace<'a> {
-    fn register_module(&'a mut self, new_module: &'a mut Module<'a>) -> anyhow::Result<()> {
+    fn register_module(&'a mut self, new_module: &'a Module<'a>) -> anyhow::Result<()> {
         if let Some(_found) = self
             .modules
             .iter()
@@ -102,20 +104,25 @@ impl<'a> Namespace<'a> {
         {
             bail!("Module registration occurred twice!");
         } else {
+            let mut it = Rc::clone(&self.interner);
+            it.borrow_mut().commit_module(new_module);
+            
             self.modules.push(Cow::Borrowed(new_module));
+            /*
             Box::leak(
                 Box::new(
                     self.interner
                         .borrow_mut()
                         .take()
                 )
-            ).commit_module(&new_module);
+            ).commit_module(new_module);
+            */
         }
         Ok(())
     }
     fn try_commit(
-        &mut self,
-        commits: &Vec<(Module<'a>, Vec<FunkData<'a>>)>,
+        &'a mut self,
+        commits: &'a Vec<(&'a Module<'a>, Vec<FunkData<'a>>)>,
     ) -> anyhow::Result<()> {
         use std::ops::Deref;
         // For each of the modules we want to verify the type submission
@@ -127,36 +134,68 @@ impl<'a> Namespace<'a> {
         let mut errors = vec![];
         
         for commit in commits {
-            let (module, submissions): &(Module, Vec<FunkData>) = commit;
+            let (module, submissions): &(&Module, Vec<FunkData>) = commit;
 
             // First we need to verify that a given module has not been taken
             // before introspecting the module-level types, abstract types,
             // triggers, mutations, traits, or even properties and links on those types.
-            let module_name = module.get_name().to_owned();
 
             if !self.interner.borrow().is_name_available(
-                    Some(module_name.as_ref()), 
+                    Some(module.name.as_ref()), 
                     None, 
                     None) 
             {
-                errors.push(anyhow!("Module {0}: already defined!", module_name.as_ref()));
+                errors.push(anyhow!("Module {0}: already defined!", module.get_name().as_ref()));
                 continue;
             }
+
+            // Caution:
+            // Do not call `register_module` here, `commit_module`, nor `commit_member` here
+            // to inject the module entry into the interner.
+            // This procedure assumes it has already happened.
             
             for funkdata in submissions {
-                let type_name = funkdata.get_name().unwrap().to_owned();
+                let identity = funkdata.get_name().unwrap().to_owned();
+
+                // TODO:
+                // With the current implementation, backlinks
+                // will likely result in an error since the associated 
+                // link either hasn't been defined yet, 
+                // or it was misspelled,
+                // or it simply doesn't exist despite the scenario where
+                // the associated backlink's type does exist 
+                // (e.g. T.field_a exists but T.field_z does not)
+                //
+                // To mitigate this flaw, `errors` can probably be adapted
+                // to hold tuple elements where the first slot is the error
+                // but the second slot is an optional `Key`.
+
                 if !self.interner.borrow().is_name_available(
-                        Some(module_name.as_ref()), 
-                        Some(type_name.as_ref()), 
-                        None) 
+                        /* module_name: Option<&str> = */ Some(module.name.as_ref()), 
+                        /* identity: Option<&str> = */ Some(identity.as_ref()), 
+                        /* field: Option<&str> = */ None) 
                 {
                     errors.push(anyhow!("Schema level name `{0}::{1}` was defined more than once.", 
-                        module_name.as_ref(), 
-                        type_name
+                        module.name.as_ref(), 
+                        identity
                     ));
-                    continue;
-                } else {
                     
+                    continue;
+                
+                } else {
+                    Box::leak(
+                        Box::new(
+                            self.interner
+                                .borrow_mut()
+                                .take()
+                        )
+                    ).metadata
+                    .insert((
+                    /* module_name: Option<Cow<'a, str>> = */ Some(module.name.clone()),
+                    /*    identity: Option<Cow<'a, str>> = */ Some(Cow::Owned(identity)),
+                    /*  assignment: Option<Cow<'a, str>> = */ None),
+                    FunkData::nil);
+                                        
                 }
             }
         }
@@ -169,12 +208,14 @@ pub(crate) struct Interner<'interner> {
     pub metadata: MetaMap<'interner>,
 }
 
+pub type FunKey<'interner> = (
+    /* module_name = */ Option<Cow<'interner, str>>,
+    /*    identity = */ Option<Cow<'interner, str>>,
+    /*  assignment = */ Option<Cow<'interner, str>>,
+);
+
 pub type MetaMap<'a> = BTreeMap<
-    (
-        /* module_name = */ Option<Cow<'a, str>>,
-        /*    identity = */ Option<Cow<'a, str>>,
-        /*  assignment = */ Option<Cow<'a, str>>,
-    ),
+    FunKey<'a>,
     FunkData<'a>,
 >;
 
@@ -213,7 +254,6 @@ impl<'interner> Interner<'interner> {
         
         // Property and link names shouldn't be disambiguated
         // on a given type.
-        // todo!("Check the interner for name availability on a module level, a module::identity level, and a module::identity.field level");
         match (module_name, identity, field) {
             (Some(module), Some(ident), Some(link_or_prop)) => {
                 let k = key!{
@@ -242,18 +282,20 @@ impl<'interner> Interner<'interner> {
 
     fn commit_module(&'interner mut self, module: &Module<'interner>) {
         let r#mod = FunkData::nil;
-        assert!(self.metadata.insert((Some(module.name.to_owned()), None, None), r#mod).is_none());
+        assert!(self.metadata.insert((Some(module.name.clone()), None, None), r#mod).is_none());
     }
 
-    fn commit_member(&'interner mut self, entry: FunkData<'interner>) {
+    fn commit_member(&'interner mut self, key: Option<FunKey<'interner>>, entry: FunkData<'interner>) {
         match entry {
             FunkData::primitive(funk_std) => {
+                // TODO: Rework this to use the new `key` parameter
                 let r#mod = Some(Cow::Owned("std".to_string()));
                 let member = Some(Cow::Owned(funk_std.get_name().unwrap().to_string()));
                 assert!(self.metadata.insert((r#mod, member, None), entry).is_none());
             }
-            FunkData::custom(ref funk_ty) => {
-                assert!(self.metadata.insert((funk_ty.type_name.clone(), None, None), entry).is_none());
+            FunkData::custom(_) => {
+                let key = key.unwrap_or_else(|| panic!("Incorrect usage of `commit_member`. Arg `key` must be Some(T)"));                
+                assert!(self.metadata.insert(key, entry).is_none());
             }
             FunkData::nil => { panic!("Incorrect usage of `commit_member`. Use `commit_module` instead."); }
         }        
@@ -324,7 +366,6 @@ impl Named<'_> for funkstd {
             Self::uint64 => Some("uint64"),
             Self::uint128 => Some("uint128"),
             Self::str => Some("str"),
-            Self::bool => Some("bool"),
         }
     }
 }
@@ -354,11 +395,11 @@ pub struct FunkTy<'a> {
     pub links: FunkLinkMap<'a>,
 }
 
+
 impl<'a> FunkTy<'a> {
     pub fn r#type<T: Into<Cow<'a, str>>>(name: T) -> FunkTy<'a> {
-        let mut this = FunkTy::default();
-        this.type_name = Some(name.into());
-        this
+        FunkTy::<'a> { type_name: Some(name.into()), ..<_>::default() }
+        
     }
 
     fn add_property<T: Into<Cow<'a, str>>>(mut self, prop: (T, funkstd)) -> Self {
@@ -496,35 +537,33 @@ mod tests {
         // Preparing the namespace, type interner, builtin types, and
         // creating a way for the interned data to be shared between
         // a module and the namespace.
-        let interner = Rc::new(RefCell::new(Interner::new()));
-
-        let mut ns = Namespace::builder()
-            .interner(Rc::clone(&interner))
+        let interner = Interner::new();
+        let it = Rc::new(Box::new(interner));
+        let std_mod_it = Rc::downgrade(&it).into_raw() as *const u8;
+        let custom_mod_it = Rc::downgrade(&it).into_raw() as *const u8;
+        let namespace = Namespace::builder()
+            .interner(it)
             .modules(vec![])
             .build();
 
         let funk_std = Module::builder()
             .name("std")
-            .interner(Rc::clone(&interner))
+            .interner(Rc::clone(&ns.interner()))
             .build();
-
-        let mut mod_funk_std = funk_std.clone();
-
-        ns.register_module(&mut mod_funk_std)?;
-
+        // Rc::clone(&ns).borrow_mut().into_inner().register_module(&funk_std)?;
+        // ns.register_module(&funk_std)?;
         let builtins: Vec<FunkData> = funkstd::iter().map(FunkData::primitive).collect();
-        let builtins = vec![(funk_std, builtins)];
-        ns.try_commit(&builtins)?;
+        let builtins = vec![(&funk_std, builtins)];
+        
+        Rc::clone(&ns).borrow_mut().into_inner().try_commit(&builtins)?;
 
         // This is where we introduce a user-defined schema
         let default = Module::builder()
             .name("default")
             .interner(Rc::clone(&interner))
             .build();
-        let mut mod_default = default.clone();
-
-        ns.register_module(&mut mod_default)?;
-
+        // ns.register_module(&mod_default)?;
+        Rc::clone(&ns).borrow_mut().into_inner().register_module(&mod_default)?;
         let FunksGiven = {
             let ty = FunkTy::r#type("FunksGiven")
                 .add_required_property(("expires", funkstd::int32))
@@ -539,13 +578,14 @@ mod tests {
         let FunksGiven = Rc::into_inner(FunksGiven).unwrap();
 
         let commits = vec![(
-            default,
+            &default,
             vec![
                 FunkData::custom(FunksGiven),
                 FunkData::custom(ReasonForLiving),
             ],
         )];
-        ns.try_commit(&commits)?;
+        Rc::clone(&ns).borrow_mut().into_inner().try_commit(&commits)?;
+        // ns.try_commit(&commits)?;
         Ok(())
     }
 
