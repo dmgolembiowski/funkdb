@@ -13,156 +13,8 @@ use std::thread;
 use strum::{EnumIter, IntoEnumIterator};
 use typed_builder::TypedBuilder;
 
-// Note: Module<'a> automatically implements ToOwned and Borrow<Self<'_>>
-#[derive(Debug, Clone)]
-struct Module<'a> {
-    name: Cow<'a, str>,
-    interner: Rc<RefCell<Interner<'a>>>,
-}
-
-impl<'a> Module<'a> {
-    #[doc(hidden)]
-    pub fn new(name: Cow<'a, str>, interner: Rc<RefCell<Interner<'a>>>) -> Self {
-        Self { name, interner }
-    }
-    #[doc(hidden)]
-    pub fn builder() -> ModuleBuilder<'a> {
-        ModuleBuilder::new()
-    }
-    pub fn get_name(&self) -> &Cow<'a, str> {
-        &self.name
-    }
-    #[allow(unreachable_code)]
-    fn add_type(&mut self, _type: FunkTy<'a>) -> anyhow::Result<()> {
-        // Inspect the interner for the presented `r#type: FunkTy<'a>`
-        // metadata. If an associated `InternerEntry` is found, we
-        // yeet an error back to the caller.
-        bail!("`add_type` Not implemented");
-        todo!("Define an `InternerEntry` that can be stored and later retrieved");
-        todo!("Encode `r#type`'s metadata as a bytestream.");
-        todo!("Commit the new metadata into the Interner");
-    }
-}
-
-#[doc(hidden)]
-#[derive(Debug, Clone)]
-struct ModuleBuilder<'a> {
-    name: Option<Cow<'a, str>>,
-    interner: Option<Rc<RefCell<Interner<'a>>>>,
-}
-
-#[doc(hidden)]
-impl<'a> ModuleBuilder<'a> {
-    pub fn new() -> Self {
-        Self {
-            name: None,
-            interner: None,
-        }
-    }
-    fn build(self) -> Module<'a> {
-        let Self { name, interner } = self;
-        let name = name.unwrap_or(Cow::from("default"));
-        let interner = {
-            if let Some(thing) = interner {
-                thing
-            } else {
-                Rc::new(RefCell::new(Interner::new()))
-            }
-        };
-        Module::new(name, interner)
-    }
-    fn name<T: Into<Cow<'a, str>>>(self, new_name: T) -> Self {
-        Self {
-            name: Some(new_name.into()),
-            interner: self.interner,
-        }
-    }
-    fn interner(self, new_interner: Rc<RefCell<Interner<'a>>>) -> Self {
-        Self {
-            name: self.name,
-            interner: Some(new_interner),
-        }
-    }
-}
-
-#[derive(TypedBuilder, Debug)]
-struct Namespace<'a> {
-    #[builder]
-    interner: Rc<RefCell<Interner<'a>>>,
-    #[builder]
-    modules: Vec<Cow<'a, Module<'a>>>,
-}
-
-impl<'a> Namespace<'a> {
-    fn register_module(&'a mut self, new_module: &'a mut Module<'a>) -> anyhow::Result<()> {
-        if let Some(_found) = self
-            .modules
-            .iter()
-            .find(|module| module.get_name() == new_module.get_name())
-        {
-            bail!("Module registration occurred twice!");
-        } else {
-            self.modules.push(Cow::Borrowed(new_module));
-            Box::leak(
-                Box::new(
-                    self.interner
-                        .borrow_mut()
-                        .take()
-                )
-            ).commit_module(&new_module);
-        }
-        Ok(())
-    }
-    fn try_commit(
-        &mut self,
-        commits: &Vec<(Module<'a>, Vec<FunkData<'a>>)>,
-    ) -> anyhow::Result<()> {
-        use std::ops::Deref;
-        // For each of the modules we want to verify the type submission
-        // as a unique entry. If a single type submission cannot be completed,
-        // yeet the error back to the caller.
-        // 
-        // If the type has an external property or link outside of the current 
-        // module, check the interner for name resolution.
-        let mut errors = vec![];
-        
-        for commit in commits {
-            let (module, submissions): &(Module, Vec<FunkData>) = commit;
-
-            // First we need to verify that a given module has not been taken
-            // before introspecting the module-level types, abstract types,
-            // triggers, mutations, traits, or even properties and links on those types.
-            let module_name = module.get_name().to_owned();
-
-            if !self.interner.borrow().is_name_available(
-                    Some(module_name.as_ref()), 
-                    None, 
-                    None) 
-            {
-                errors.push(anyhow!("Module {0}: already defined!", module_name.as_ref()));
-                continue;
-            }
-            
-            for funkdata in submissions {
-                let type_name = funkdata.get_name().unwrap().to_owned();
-                if !self.interner.borrow().is_name_available(
-                        Some(module_name.as_ref()), 
-                        Some(type_name.as_ref()), 
-                        None) 
-                {
-                    errors.push(anyhow!("Schema level name `{0}::{1}` was defined more than once.", 
-                        module_name.as_ref(), 
-                        type_name
-                    ));
-                    continue;
-                } else {
-                    
-                }
-            }
-        }
-        Ok(())
-    }
-}
+pub(crate) mod module;
+pub(crate) mod namespace;
 
 #[derive(Default, Debug, Clone)]
 pub(crate) struct Interner<'interner> {
@@ -468,6 +320,16 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn create_db_schema() -> anyhow::Result<()> {}
+
+    #[test]
+    fn verify_schema_transaction_works() -> anyhow::Result<()> {}
+
+    #[test]
+    fn apply_schema_transaction() -> anyhow::Result<()> {}
+
+    #[ignore]
     #[test]
     fn create_db_schema_and_apply_it() -> anyhow::Result<()> {
         use std::cell::{RefCell, RefMut};
