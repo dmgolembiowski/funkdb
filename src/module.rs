@@ -11,7 +11,7 @@ use std::rc::Rc;
 use std::thread;
 use strum::{EnumIter, IntoEnumIterator};
 use typed_builder::TypedBuilder;
-
+use crate::{FunkData, FunkTy};
 use crate::namespace::Namespace;
 use std::rc::Weak;
 
@@ -20,15 +20,17 @@ use std::rc::Weak;
 // 
 // `module default { ... }`
 #[derive(Debug, Clone)]
-pub(crate) struct Module<'a> {
-    module_name: Box<*const Cow<'a, str>>,
-    module_member_entries: Vec<(
-        /* field_name = */ String,
-        (
-            /* `module_name::module_member_identity` alias */ String,
-            /* attribute_map = */ AttributeMap,
-        )
-    )>,
+pub(crate) struct Module<'ns> {
+    module_name: Box<*const Cow<'ns, str>>,
+    module_member_entries: Vec<Member<'ns>>,
+
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct Member<'ns> {
+    member_name: String,
+    fields: Option<Vec<MemberData<'ns>>>,
+    attrs: Option<AttributeMap>,
 }
 
 // ```
@@ -40,11 +42,27 @@ pub(crate) struct Module<'a> {
 // }
 // ```
 #[derive(Debug, Clone)]
-pub(crate) struct  Member {
+pub(crate) struct  MemberField {
     field_name: String,
     layout: Option<Vec<MemberLayout>>,
 }
 
+/// QualPath is the complete 
+/// name used to describe the data type 
+/// for a given property or link 
+/// on a member's field.
+///
+/// If the type exists outside of the current
+/// module-level, then either a top-level `using`
+/// statement must be present. Otherwise, the fully-qualified
+/// syntax is required to resolve the link/property. 
+trait QualPath {}
+
+pub(crate) enum MemberData<'ns> {
+    LocalMember(MemberField),
+    Nonlocal(&'ns dyn QualPath),
+    Std(&'ns dyn QualPath),
+}
 // ```
 // module default { 
 //      type A; 
@@ -74,7 +92,7 @@ pub(crate) struct Constraint;
 
 impl<'a> Module<'a> {
     #[doc(hidden)]
-    pub fn new(module_name: &Rc<Cow<'a, str>>, module_member_entries: &) -> Self {
+    pub fn new(module_name: &Rc<Cow<'a, str>>) -> Self {
         let name_ref = Rc::clone(module_name);
         let module_name: Box<*const Cow<'a, str>>  = Box::new(Rc::downgrade(&name_ref).into_raw());
         Self { module_name }
@@ -100,9 +118,8 @@ impl<'a> Module<'a> {
 
 #[doc(hidden)]
 #[derive(Debug, Clone)]
-struct ModuleBuilder<'a> {
+pub(crate) struct ModuleBuilder<'a> {
     name: Option<Cow<'a, str>>,
-    interner: Option<Rc<RefCell<Interner<'a>>>>,
 }
 
 #[doc(hidden)]
@@ -110,31 +127,16 @@ impl<'a> ModuleBuilder<'a> {
     pub fn new() -> Self {
         Self {
             name: None,
-            interner: None,
         }
     }
     fn build(self) -> Module<'a> {
         let Self { name, interner } = self;
         let name = name.unwrap_or(Cow::from("default"));
-        let interner = {
-            if let Some(thing) = interner {
-                thing
-            } else {
-                Rc::new(RefCell::new(Interner::new()))
-            }
-        };
-        Module::new(name, interner)
+        Module::new(name)
     }
     fn name<T: Into<Cow<'a, str>>>(self, new_name: T) -> Self {
         Self {
             name: Some(new_name.into()),
-            interner: self.interner,
-        }
-    }
-    fn interner(self, new_interner: Rc<RefCell<Interner<'a>>>) -> Self {
-        Self {
-            name: self.name,
-            interner: Some(new_interner),
         }
     }
 }

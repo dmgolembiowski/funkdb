@@ -16,10 +16,6 @@ use typed_builder::TypedBuilder;
 pub(crate) mod module;
 pub(crate) mod namespace;
 
-#[derive(Default, Debug, Clone)]
-pub(crate) struct Interner<'interner> {
-    pub metadata: MetaMap<'interner>,
-}
 
 pub type MetaMap<'a> = BTreeMap<
     (
@@ -50,74 +46,10 @@ macro_rules! key {
     }
 }
 
-impl<'interner> Interner<'interner> {
-    pub fn new() -> Self {
-        Interner {
-            metadata: MetaMap::new(),
-        }
-    }
-    pub fn is_name_available(
-        &self,
-        module_name: Option<&str>,
-        identity: Option<&str>,
-        field: Option<&str>,
-    ) -> bool {
-        
-        // Property and link names shouldn't be disambiguated
-        // on a given type.
-        // todo!("Check the interner for name availability on a module level, a module::identity level, and a module::identity.field level");
-        match (module_name, identity, field) {
-            (Some(module), Some(ident), Some(link_or_prop)) => {
-                let k = key!{
-                    r#mod = module,
-                    identity = ident,
-                    assignment = link_or_prop,
-                };
-                self.metadata.get(&(k.r#mod, k.identity, k.assignment)).is_none()
-            }
-            (Some(module), Some(ident), None) => {
-                let k = key!{
-                    r#mod = module,
-                    identity = ident,
-                };
-                self.metadata.get(&(k.r#mod, k.identity, k.assignment)).is_none()
-            }
-            (Some(module), None, None) => {
-                let k = key!{ r#mod = module };
-                self.metadata.get(&(k.r#mod, k.identity, k.assignment)).is_none()
-            }
-            _ => {
-                panic!("Verify the arguments passed to is_name_available");
-            }
-        }
-    }
-
-    fn commit_module(&'interner mut self, module: &Module<'interner>) {
-        let r#mod = FunkData::nil;
-        assert!(self.metadata.insert((Some(module.name.to_owned()), None, None), r#mod).is_none());
-    }
-
-    fn commit_member(&'interner mut self, entry: FunkData<'interner>) {
-        match entry {
-            FunkData::primitive(funk_std) => {
-                let r#mod = Some(Cow::Owned("std".to_string()));
-                let member = Some(Cow::Owned(funk_std.get_name().unwrap().to_string()));
-                assert!(self.metadata.insert((r#mod, member, None), entry).is_none());
-            }
-            FunkData::custom(ref funk_ty) => {
-                assert!(self.metadata.insert((funk_ty.type_name.clone(), None, None), entry).is_none());
-            }
-            FunkData::nil => { panic!("Incorrect usage of `commit_member`. Use `commit_module` instead."); }
-        }        
-    }
-
-    
-}
-
 #[derive(Debug, Clone)]
-pub enum FunkData<'interner> {
+pub enum FunkData<'ns> {
     primitive(funkstd),
-    custom(FunkTy<'interner>),
+    custom(FunkTy<'ns>),
     nil,
 }
 

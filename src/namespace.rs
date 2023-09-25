@@ -13,6 +13,7 @@ use std::thread;
 use strum::{EnumIter, IntoEnumIterator};
 use typed_builder::TypedBuilder;
 
+use crate::FunkData;
 use crate::MetaMap;
 use crate::module::{Module, ModuleBuilder};
 
