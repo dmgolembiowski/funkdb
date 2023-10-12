@@ -1,8 +1,14 @@
+use crate::module::{Module, ModuleBuilder};
+use crate::FunkData;
+use crate::MetaMap;
+use crate::Named;
+use crate::{key, Key};
 use anyhow::{self as ah, anyhow, bail, Error, Result};
 use std::borrow::{BorrowMut, Cow};
 use std::cell::{RefCell, RefMut};
 use std::collections::BTreeMap;
 use std::fs::{self, File};
+use std::ops::Deref;
 #[cfg(any(unix, target_os = "wasi"))]
 use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -13,19 +19,14 @@ use std::thread;
 use strum::{EnumIter, IntoEnumIterator};
 use typed_builder::TypedBuilder;
 
-use crate::FunkData;
-use crate::MetaMap;
-use crate::module::{Module, ModuleBuilder};
-
-
 // 'a approaches 'static
 //
-#[derive(TypedBuilder, Debug)]
+#[derive(TypedBuilder)]
 pub(crate) struct Namespace<'a> {
     #[builder]
-    metadata: MetaMap<'a>,
+    pub(crate) metadata: MetaMap<'a>,
     #[builder]
-    modules: Vec<Cow<'a, Module<'a>>>,
+    pub(crate) modules: Vec<Module<'a>>,
 }
 
 impl<'a> Namespace<'a> {
@@ -37,13 +38,12 @@ impl<'a> Namespace<'a> {
         {
             bail!("Module registration occurred twice!");
         } else {
-            self.modules.push(Cow::Borrowed(new_module));
-            Box::leak(Box::new(self.interner.borrow_mut().take())).commit_module(&new_module);
+            self.modules.push(*new_module);
+            self.commit_module(&new_module);
         }
         Ok(())
     }
     fn try_commit(&mut self, commits: &'a Vec<(Module, Vec<FunkData<'a>>)>) -> anyhow::Result<()> {
-        use std::ops::Deref;
         // For each of the modules we want to verify the type submission
         // as a unique entry. If a single type submission cannot be completed,
         // yeet the error back to the caller.
@@ -60,11 +60,7 @@ impl<'a> Namespace<'a> {
             // triggers, mutations, traits, or even properties and links on those types.
             let module_name = module.get_name().to_owned();
 
-            if !self
-                .interner
-                .borrow()
-                .is_name_available(Some(module_name.as_ref()), None, None)
-            {
+            if !self.is_name_available(Some(module_name.as_ref()), None, None) {
                 errors.push(anyhow!(
                     "Module {0}: already defined!",
                     module_name.as_ref()
@@ -74,7 +70,7 @@ impl<'a> Namespace<'a> {
 
             for funkdata in submissions {
                 let identity = funkdata.get_name().unwrap().to_owned();
-                if !self.interner.borrow().is_name_available(
+                if !self.is_name_available(
                     Some(module_name.as_ref()),
                     Some(identity.as_ref()),
                     None,
@@ -86,19 +82,106 @@ impl<'a> Namespace<'a> {
                     ));
                     continue;
                 } else {
-                    &self
-                        .interner
-                        .borrow_mut()
-                        .to_owned()
-                        .get_mut()
-                        .commit_member_level(
-                            /* module_name = */ Cow::Borrowed(module_name.as_ref()),
-                            /* identity = */ Cow::Borrowed(identity.as_ref()),
-                            /* entry = */ FunkData::nil,
-                        )?;
+                    self.commit_member_level(
+                        /* module_name = */ Cow::Borrowed(module_name.as_ref()),
+                        /* identity = */ Cow::Borrowed(identity.as_ref()),
+                        /* entry = */ FunkData::nil,
+                    )?;
                 }
             }
         }
         Ok(())
+    }
+
+    pub fn is_name_available(
+        &self,
+        module_name: Option<&str>,
+        identity: Option<&str>,
+        field: Option<&str>,
+    ) -> bool {
+        // Property and link names shouldn't be disambiguated
+        // on a given type.
+        // todo!("Check the interner for name availability on a module level, a module::identity level, and a module::identity.field level");
+        match (module_name, identity, field) {
+            (Some(module), Some(ident), Some(link_or_prop)) => {
+                let k = key! {
+                    r#mod = module,
+                    identity = ident,
+                    assignment = link_or_prop,
+                };
+                self.metadata
+                    .get(&(k.r#mod, k.identity, k.assignment))
+                    .is_none()
+            }
+            (Some(module), Some(ident), None) => {
+                let k = key! {
+                    r#mod = module,
+                    identity = ident,
+                };
+                self.metadata
+                    .get(&(k.r#mod, k.identity, k.assignment))
+                    .is_none()
+            }
+            (Some(module), None, None) => {
+                let k = key! { r#mod = module };
+                self.metadata
+                    .get(&(k.r#mod, k.identity, k.assignment))
+                    .is_none()
+            }
+            _ => {
+                panic!("Verify the arguments passed to is_name_available");
+            }
+        }
+    }
+
+    fn commit_module(&mut self, module: &Module<'a>) {
+        let r#mod = FunkData::nil;
+        assert!(self
+            .metadata
+            .insert((Some(module.module_name.to_owned()), None, None), r#mod)
+            .is_none());
+    }
+
+    // [`commit_member_level`] allocates the name on the module-level identity
+    // in such a way that it guarantees future attempts to bind this name
+    // to a repeated type name, a link, property, or backlink cannot happen
+    // without presenting the collision attempt to the caller.
+    fn commit_member_level(
+        &mut self,
+        module_name: Cow<'a, str>,
+        identity: Cow<'a, str>,
+        entry: FunkData<'a>,
+    ) -> anyhow::Result<()> {
+        // When commiting a new custom type identity, `entry` should be `nil`.
+        let memkey = (Some(module_name), Some(identity), None);
+        match self.metadata.insert(memkey, entry) {
+            Some(collision) => Err(anyhow!(
+                "We should not reach this point if `try_commit` logic is correct"
+            )),
+            None => Ok(()),
+        }
+    }
+
+    fn commit_member(&mut self, funkey: Option<Key<'a>>, entry: FunkData<'a>) {
+        match entry {
+            FunkData::primitive(funk_std) => {
+                let r#mod = Some(Cow::Owned("std".to_string()));
+                let member = Some(Cow::Owned(funk_std.get_name().unwrap().to_string()));
+                assert!(self.metadata.insert((r#mod, member, None), entry).is_none());
+            }
+            FunkData::custom(ref funk_ty) => {
+                assert!(funkey.is_some());
+                let funkey = funkey.unwrap();
+                let r#mod = funkey.r#mod;
+                let member = funkey.identity;
+                assert!(self
+                    .metadata
+                    .insert((funk_ty.type_name.clone(), None, None), entry)
+                    .is_none());
+            }
+            FunkData::nil => {
+                panic!("Incorrect usage of `commit_member`. Use `commit_module` instead.");
+            }
+        }
     }
 }

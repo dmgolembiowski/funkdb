@@ -16,6 +16,8 @@ use typed_builder::TypedBuilder;
 pub(crate) mod module;
 pub(crate) mod namespace;
 
+use crate::module::Module;
+use crate::namespace::Namespace;
 
 pub type MetaMap<'a> = BTreeMap<
     (
@@ -28,23 +30,26 @@ pub type MetaMap<'a> = BTreeMap<
 
 #[doc(hidden)]
 #[derive(Default)]
-struct Key<'a> {
+pub(crate) struct Key<'a> {
     r#mod: Option<Cow<'a, str>>,
     identity: Option<Cow<'a, str>>,
     assignment: Option<Cow<'a, str>>,
 }
 
-#[doc(hidden)]
-macro_rules! key {
-    ($($type_field:ident = $type_value:expr),* $(,)?) => {
-        Key {
-            $(
-                $type_field: Some(Cow::Borrowed($type_value)),
-            )*
-            ..<_>::default()
+mod macros {
+    macro_rules! key {
+        ($($type_field:ident = $type_value:expr),* $(,)?) => {
+            Key {
+                $(
+                    $type_field: Some(Cow::Borrowed($type_value)),
+                )*
+                ..<_>::default()
+            }
         }
     }
+    pub(crate) use key;
 }
+pub(crate) use macros::key;
 
 #[derive(Debug, Clone)]
 pub enum FunkData<'ns> {
